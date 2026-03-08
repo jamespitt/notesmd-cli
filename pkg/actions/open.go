@@ -1,7 +1,8 @@
 package actions
 
 import (
-	"path/filepath"
+	"fmt"
+	"os"
 
 	"github.com/Yakitrak/notesmd-cli/pkg/obsidian"
 )
@@ -19,23 +20,29 @@ func OpenNote(vault obsidian.VaultManager, uri obsidian.UriManager, params OpenP
 	}
 
 	if params.UseEditor {
+		if params.Section != "" {
+			fmt.Fprintln(os.Stderr, "Warning: --section is ignored when using --editor")
+		}
 		vaultPath, err := vault.Path()
 		if err != nil {
 			return err
 		}
-		noteName := obsidian.AddMdSuffix(params.NoteName)
-		fullPath := filepath.Join(vaultPath, noteName)
-		return obsidian.OpenInEditor(fullPath)
+		filePath, err := obsidian.ValidatePath(vaultPath, obsidian.AddMdSuffix(params.NoteName))
+		if err != nil {
+			return err
+		}
+		return obsidian.OpenInEditor(filePath)
 	}
 
-	file := params.NoteName
+	fileParam := params.NoteName
 	if params.Section != "" {
-		file = params.NoteName + "#" + params.Section
+		fileParam = params.NoteName + "#" + params.Section
 	}
 
 	obsidianUri := uri.Construct(ObsOpenUrl, map[string]string{
-		"file":  file,
 		"vault": vaultName,
+		"file":  fileParam,
 	})
+
 	return uri.Execute(obsidianUri)
 }

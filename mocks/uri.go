@@ -1,26 +1,18 @@
 package mocks
 
-import "fmt"
-
 type MockUriManager struct {
-	ExecuteErr  error
-	LastParams  map[string]string
-	LastBaseUrl string
+	ConstructedURI string
+	LastBase       string
+	LastParams     map[string]string
+	ExecuteErr     error
 }
 
-func (m *MockUriManager) Construct(baseUrl string, params map[string]string) string {
-	m.LastBaseUrl = baseUrl
+func (m *MockUriManager) Construct(base string, params map[string]string) string {
+	m.LastBase = base
 	m.LastParams = params
-	query := ""
-	for k, v := range params {
-		if query != "" {
-			query += "&"
-		}
-		query += fmt.Sprintf("%s=%s", k, v)
-	}
-	return baseUrl + "?" + query
+	return m.ConstructedURI
 }
 
-func (m *MockUriManager) Execute(_ string) error {
+func (m *MockUriManager) Execute(uri string) error {
 	return m.ExecuteErr
 }

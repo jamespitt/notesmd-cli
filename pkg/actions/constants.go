@@ -1,3 +1,8 @@
 package actions
 
-const ObsOpenUrl = "obsidian://open"
+const (
+	obsBaseUrl = "obsidian://"
+	openAction = "open"
+
+	ObsOpenUrl = obsBaseUrl + openAction
+)

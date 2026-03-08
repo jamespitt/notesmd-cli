@@ -57,9 +57,9 @@ github.com/inconshreveable/mousetrap
 github.com/ktr0731/go-ansisgr
 # github.com/ktr0731/go-fuzzyfinder v0.9.0
 ## explicit; go 1.24
+github.com/ktr0731/go-fuzzyfinder
 github.com/ktr0731/go-fuzzyfinder/matching
 github.com/ktr0731/go-fuzzyfinder/scoring
-github.com/ktr0731/go-fuzzyfinder
 # github.com/lucasb-eyer/go-colorful v1.2.0
 ## explicit; go 1.12
 github.com/lucasb-eyer/go-colorful

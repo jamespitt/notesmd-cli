@@ -4,7 +4,11 @@ import (
 	"github.com/Yakitrak/notesmd-cli/pkg/obsidian"
 )
 
-func ListNotes(vault obsidian.VaultManager, note obsidian.NoteManager) ([]string, error) {
+type ListParams struct {
+	Path string
+}
+
+func ListEntries(vault obsidian.VaultManager, params ListParams) ([]string, error) {
 	_, err := vault.DefaultName()
 	if err != nil {
 		return nil, err
@@ -15,5 +19,5 @@ func ListNotes(vault obsidian.VaultManager, note obsidian.NoteManager) ([]string
 		return nil, err
 	}
 
-	return note.GetNotesList(vaultPath)
+	return obsidian.ListEntries(vaultPath, params.Path)
 }

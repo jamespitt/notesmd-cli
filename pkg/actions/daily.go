@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -23,48 +24,51 @@ func DailyNote(vault obsidian.VaultManager, uri obsidian.UriManager, params Dail
 		return err
 	}
 
-	cfg := obsidian.ReadDailyNotesConfig(vaultPath)
+	config := obsidian.ReadDailyNotesConfig(vaultPath)
 
-	format := cfg.Format
+	// Format today's date using the configured Moment.js format.
+	format := config.Format
 	if format == "" {
 		format = "YYYY-MM-DD"
 	}
-	goFormat := obsidian.MomentToGoFormat(format)
-	noteName := time.Now().Format(goFormat)
+	noteName := time.Now().Format(obsidian.MomentToGoFormat(format))
 
-	folder := cfg.Folder
-	noteRelPath := noteName + ".md"
-	if folder != "" {
-		noteRelPath = filepath.Join(folder, noteRelPath)
+	// Prepend configured daily notes folder.
+	if config.Folder != "" {
+		noteName = config.Folder + "/" + noteName
 	}
 
-	fullPath := filepath.Join(vaultPath, noteRelPath)
-
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+	notePath, err := obsidian.ValidatePath(vaultPath, obsidian.AddMdSuffix(noteName))
+	if err != nil {
 		return err
 	}
 
-	// Only create if it doesn't exist
-	if !fileExists(fullPath) {
-		content := ""
-		if cfg.Template != "" {
-			templatePath := filepath.Join(vaultPath, obsidian.AddMdSuffix(cfg.Template))
-			if data, err := os.ReadFile(templatePath); err == nil {
-				content = string(data)
-			}
-		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
-			return err
+	if err := os.MkdirAll(filepath.Dir(notePath), 0755); err != nil {
+		return fmt.Errorf("failed to create daily note directory: %w", err)
+	}
+
+	// Read template content if configured.
+	content := ""
+	if config.Template != "" {
+		templatePath := filepath.Join(vaultPath, obsidian.AddMdSuffix(config.Template))
+		if templateContent, readErr := os.ReadFile(templatePath); readErr == nil {
+			content = string(templateContent)
 		}
 	}
 
+	// WriteNoteFile leaves existing files unchanged (no append/overwrite).
+	if err := WriteNoteFile(notePath, content, false, false); err != nil {
+		return err
+	}
+
+	// Open the note.
 	if params.UseEditor {
-		return obsidian.OpenInEditor(fullPath)
+		return obsidian.OpenInEditor(notePath)
 	}
 
 	obsidianUri := uri.Construct(ObsOpenUrl, map[string]string{
-		"file":  noteName,
 		"vault": vaultName,
+		"file":  noteName,
 	})
 	return uri.Execute(obsidianUri)
 }

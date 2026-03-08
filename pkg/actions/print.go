@@ -2,6 +2,7 @@ package actions
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Yakitrak/notesmd-cli/pkg/obsidian"
 )
@@ -32,13 +33,39 @@ func PrintNote(vault obsidian.VaultManager, note obsidian.NoteManager, params Pr
 		if err != nil {
 			return "", err
 		}
+
 		if len(backlinks) > 0 {
-			contents += "\n\n## Linked Mentions\n"
-			for _, bl := range backlinks {
-				contents += fmt.Sprintf("- [[%s]] (line %d): %s\n", bl.FilePath, bl.LineNumber, bl.MatchLine)
-			}
+			contents += formatMentions(backlinks)
 		}
 	}
 
 	return contents, nil
+}
+
+func formatMentions(backlinks []obsidian.NoteMatch) string {
+	var sb strings.Builder
+	sb.WriteString("\n\n## Linked Mentions\n")
+
+	// Group matches by file path, preserving order
+	grouped := make(map[string][]obsidian.NoteMatch)
+	var order []string
+
+	for _, match := range backlinks {
+		if _, exists := grouped[match.FilePath]; !exists {
+			order = append(order, match.FilePath)
+		}
+		grouped[match.FilePath] = append(grouped[match.FilePath], match)
+	}
+
+	for _, filePath := range order {
+		noteName := obsidian.RemoveMdSuffix(filePath)
+		fmt.Fprintf(&sb, "\n**[[%s]]**\n", noteName)
+		for _, match := range grouped[filePath] {
+			sb.WriteString("- ")
+			sb.WriteString(match.MatchLine)
+			sb.WriteByte('\n')
+		}
+	}
+
+	return sb.String()
 }

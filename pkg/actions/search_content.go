@@ -7,7 +7,7 @@ import (
 	"github.com/Yakitrak/notesmd-cli/pkg/obsidian"
 )
 
-func SearchNotesContent(vault obsidian.VaultManager, note obsidian.NoteManager, uri obsidian.UriManager, fuzzyFinder obsidian.FuzzyFinderManager, query string, useEditor bool) error {
+func SearchNotesContent(vault obsidian.VaultManager, note obsidian.NoteManager, uri obsidian.UriManager, fuzzyFinder obsidian.FuzzyFinderManager, searchTerm string, useEditor bool) error {
 	vaultName, err := vault.DefaultName()
 	if err != nil {
 		return err
@@ -18,26 +18,30 @@ func SearchNotesContent(vault obsidian.VaultManager, note obsidian.NoteManager, 
 		return err
 	}
 
-	matches, err := note.SearchNotesWithSnippets(vaultPath, query)
+	matches, err := note.SearchNotesWithSnippets(vaultPath, searchTerm)
 	if err != nil {
 		return err
 	}
 
 	if len(matches) == 0 {
-		fmt.Println("No matches found")
+		fmt.Printf("No notes found containing '%s'\n", searchTerm)
 		return nil
 	}
 
-	// If single match and using editor, open directly
-	if len(matches) == 1 && useEditor {
-		filePath := filepath.Join(vaultPath, matches[0].FilePath)
-		return obsidian.OpenInEditor(filePath)
+	if len(matches) == 1 {
+		fmt.Printf("Opening note: %s\n", matches[0].FilePath)
+		if useEditor {
+			filePath := filepath.Join(vaultPath, matches[0].FilePath)
+			return obsidian.OpenInEditor(filePath)
+		}
+		obsidianUri := uri.Construct(ObsOpenUrl, map[string]string{
+			"file":  matches[0].FilePath,
+			"vault": vaultName,
+		})
+		return uri.Execute(obsidianUri)
 	}
 
-	displayItems := make([]string, len(matches))
-	for i, m := range matches {
-		displayItems[i] = fmt.Sprintf("%s:%d: %s", m.FilePath, m.LineNumber, m.MatchLine)
-	}
+	displayItems := formatMatchesForDisplay(matches)
 
 	index, err := fuzzyFinder.Find(displayItems, func(i int) string {
 		return displayItems[i]
@@ -46,16 +50,55 @@ func SearchNotesContent(vault obsidian.VaultManager, note obsidian.NoteManager, 
 		return err
 	}
 
-	selected := matches[index]
-
+	selectedMatch := matches[index]
 	if useEditor {
-		filePath := filepath.Join(vaultPath, selected.FilePath)
+		filePath := filepath.Join(vaultPath, selectedMatch.FilePath)
+		fmt.Printf("Opening note: %s\n", selectedMatch.FilePath)
 		return obsidian.OpenInEditor(filePath)
 	}
-
 	obsidianUri := uri.Construct(ObsOpenUrl, map[string]string{
-		"file":  selected.FilePath,
+		"file":  selectedMatch.FilePath,
 		"vault": vaultName,
 	})
 	return uri.Execute(obsidianUri)
+}
+
+func formatMatchesForDisplay(matches []obsidian.NoteMatch) []string {
+	maxPathLength := calculateMaxPathLength(matches)
+
+	var displayItems []string
+	for _, match := range matches {
+		displayStr := formatSingleMatch(match, maxPathLength)
+		displayItems = append(displayItems, displayStr)
+	}
+
+	return displayItems
+}
+
+func calculateMaxPathLength(matches []obsidian.NoteMatch) int {
+	maxLength := 0
+	for _, match := range matches {
+		pathWithLine := formatPathWithLine(match)
+		if len(pathWithLine) > maxLength {
+			maxLength = len(pathWithLine)
+		}
+	}
+	return maxLength
+}
+
+func formatPathWithLine(match obsidian.NoteMatch) string {
+	if match.LineNumber > 0 {
+		return fmt.Sprintf("%s:%d", match.FilePath, match.LineNumber)
+	}
+	return match.FilePath
+}
+
+func formatSingleMatch(match obsidian.NoteMatch, maxPathLength int) string {
+	pathWithLine := formatPathWithLine(match)
+	if match.LineNumber == 0 {
+		// Filename match - show path and indicate it's a filename match
+		return fmt.Sprintf("%-*s | %s", maxPathLength, pathWithLine, match.MatchLine)
+	}
+	// Content match - show path:line | snippet
+	return fmt.Sprintf("%-*s | %s", maxPathLength, pathWithLine, match.MatchLine)
 }

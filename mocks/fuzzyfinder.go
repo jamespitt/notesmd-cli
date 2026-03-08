@@ -1,13 +1,13 @@
 package mocks
 
 type MockFuzzyFinder struct {
-	FindErr       error
 	SelectedIndex int
+	FindErr       error
 }
 
-func (m *MockFuzzyFinder) Find(items []string, _ func(i int) string) (int, error) {
-	if m.FindErr != nil {
-		return 0, m.FindErr
+func (f *MockFuzzyFinder) Find(slice interface{}, itemFunc func(i int) string, opts ...interface{}) (int, error) {
+	if f.FindErr != nil {
+		return -1, f.FindErr
 	}
-	return m.SelectedIndex, nil
+	return f.SelectedIndex, nil
 }
