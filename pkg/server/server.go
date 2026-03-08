@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 
 	"github.com/Yakitrak/notesmd-cli/pkg/actions"
 	"github.com/Yakitrak/notesmd-cli/pkg/frontmatter"
 	"github.com/Yakitrak/notesmd-cli/pkg/obsidian"
+	"github.com/Yakitrak/notesmd-cli/pkg/tasks"
 )
 
 // Server holds the dependencies for the HTTP handlers.
@@ -30,6 +32,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/notes/{path...}", s.patchNote)
 	mux.HandleFunc("DELETE /api/notes/{path...}", s.deleteNote)
 	mux.HandleFunc("GET /api/search", s.searchNotes)
+
+	mux.HandleFunc("GET /api/tasks", s.listTasks)
+	mux.HandleFunc("GET /api/tasks/today", s.listTasksToday)
+	mux.HandleFunc("GET /api/tasks/overdue", s.listTasksOverdue)
+	mux.HandleFunc("PATCH /api/tasks/{path...}", s.patchTask)
 
 	return withCORS(mux)
 }
@@ -68,7 +75,7 @@ func jsonError(w http.ResponseWriter, status int, msg string) {
 
 // GET /api/notes
 func (s *Server) listNotes(w http.ResponseWriter, r *http.Request) {
-	notes, err := actions.ListNotes(s.vault, s.note)
+	notes, err := actions.ListEntries(s.vault, actions.ListParams{})
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -165,7 +172,7 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, "newPath is required")
 			return
 		}
-		err := actions.MoveNote(s.vault, s.note, actions.MoveParams{
+		err := actions.MoveNote(s.vault, s.note, &obsidian.Uri{}, actions.MoveParams{
 			CurrentNoteName: path,
 			NewNoteName:     body.NewPath,
 		})
@@ -241,7 +248,7 @@ func (s *Server) updateFrontmatter(w http.ResponseWriter, path string, transform
 func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
 
-	err := actions.DeleteNote(s.vault, s.note, actions.DeleteParams{NoteName: path})
+	err := actions.DeleteNote(s.vault, s.note, actions.DeleteParams{NotePath: path})
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -287,4 +294,121 @@ func (s *Server) searchNotes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOK(w, map[string]any{"results": results})
+}
+
+// getVaultPath is a helper to resolve and return the vault path.
+func (s *Server) getVaultPath(w http.ResponseWriter) (string, error) {
+	_, err := s.vault.DefaultName()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return "", err
+	}
+	vaultPath, err := s.vault.Path()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return "", err
+	}
+	return vaultPath, nil
+}
+
+// GET /api/tasks
+func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
+	vaultPath, err := s.getVaultPath(w)
+	if err != nil {
+		return
+	}
+
+	all, err := tasks.ParseVault(vaultPath)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if all == nil {
+		all = []tasks.Task{}
+	}
+	jsonOK(w, map[string]any{"tasks": all})
+}
+
+// GET /api/tasks/today
+func (s *Server) listTasksToday(w http.ResponseWriter, r *http.Request) {
+	vaultPath, err := s.getVaultPath(w)
+	if err != nil {
+		return
+	}
+
+	all, err := tasks.ParseVault(vaultPath)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	result := tasks.FilterToday(all)
+	if result == nil {
+		result = []tasks.Task{}
+	}
+	jsonOK(w, map[string]any{"tasks": result})
+}
+
+// GET /api/tasks/overdue
+func (s *Server) listTasksOverdue(w http.ResponseWriter, r *http.Request) {
+	vaultPath, err := s.getVaultPath(w)
+	if err != nil {
+		return
+	}
+
+	all, err := tasks.ParseVault(vaultPath)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	result := tasks.FilterOverdue(all)
+	if result == nil {
+		result = []tasks.Task{}
+	}
+	jsonOK(w, map[string]any{"tasks": result})
+}
+
+// PATCH /api/tasks/{path...}
+// Body: { "line": 42, "status": "completed" | "todo" }
+func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
+	notePath := r.PathValue("path")
+
+	var body struct {
+		Line   int    `json:"line"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Line < 1 {
+		jsonError(w, http.StatusBadRequest, "line must be >= 1")
+		return
+	}
+
+	vaultPath, err := s.getVaultPath(w)
+	if err != nil {
+		return
+	}
+
+	absPath := filepath.Join(vaultPath, obsidian.AddMdSuffix(notePath))
+
+	var newStatus tasks.Status
+	switch body.Status {
+	case "completed":
+		newStatus = tasks.StatusCompleted
+	case "todo":
+		newStatus = tasks.StatusTodo
+	default:
+		jsonError(w, http.StatusBadRequest, "status must be 'completed' or 'todo'")
+		return
+	}
+
+	if err := tasks.ToggleStatus(absPath, body.Line, newStatus); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "status": body.Status})
 }
