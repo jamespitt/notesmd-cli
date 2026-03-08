@@ -1,0 +1,16 @@
+[Unit]
+Description=notesmd-cli HTTP API server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/notesmd-cli serve --port 7070
+Restart=on-failure
+RestartSec=5
+
+# Logs go to journald — view with: journalctl --user -u notesmd-cli -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
