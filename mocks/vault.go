@@ -42,3 +42,7 @@ func (m *MockVaultOperator) DefaultOpenType() (string, error) {
 	}
 	return "obsidian", nil
 }
+
+func (m *MockVaultOperator) SetDefaultOpenType(_ string) error {
+	return nil
+}
