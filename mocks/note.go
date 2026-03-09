@@ -12,6 +12,8 @@ type MockNoteManager struct {
 	FindBacklinksResult []obsidian.NoteMatch
 	NoMatches           bool
 	Contents            string
+	SearchTasksResult   []obsidian.Task
+	SearchTasksErr      error
 }
 
 func (m *MockNoteManager) Delete(string) error {
@@ -68,4 +70,14 @@ func (m *MockNoteManager) FindBacklinks(string, string) ([]obsidian.NoteMatch, e
 		{FilePath: "linking-note.md", LineNumber: 5, MatchLine: "This links to [[target]]"},
 		{FilePath: "another-note.md", LineNumber: 10, MatchLine: "Also references [[target]]"},
 	}, nil
+}
+
+func (m *MockNoteManager) SearchTasks(_ string, _ []string, _ obsidian.TaskFilters) ([]obsidian.Task, error) {
+	if m.SearchTasksErr != nil {
+		return nil, m.SearchTasksErr
+	}
+	if m.NoMatches {
+		return []obsidian.Task{}, nil
+	}
+	return m.SearchTasksResult, nil
 }

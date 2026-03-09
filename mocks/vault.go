@@ -1,12 +1,14 @@
 package mocks
 
 type MockVaultOperator struct {
-	DefaultNameErr error
-	PathError      error
-	Name           string
-	PathValue      string
-	OpenType       string
-	OpenTypeErr    error
+	DefaultNameErr     error
+	PathError          error
+	Name               string
+	PathValue          string
+	OpenType           string
+	OpenTypeErr        error
+	DefaultTaskFolders []string
+	TaskFoldersErr     error
 }
 
 func (m *MockVaultOperator) DefaultName() (string, error) {
@@ -41,4 +43,11 @@ func (m *MockVaultOperator) DefaultOpenType() (string, error) {
 		return m.OpenType, nil
 	}
 	return "obsidian", nil
+}
+
+func (m *MockVaultOperator) TaskFolders() ([]string, error) {
+	if m.TaskFoldersErr != nil {
+		return nil, m.TaskFoldersErr
+	}
+	return m.DefaultTaskFolders, nil
 }

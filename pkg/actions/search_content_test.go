@@ -29,6 +29,10 @@ func (m *CustomMockNoteForSingleMatch) FindBacklinks(string, string) ([]obsidian
 	return nil, nil
 }
 
+func (m *CustomMockNoteForSingleMatch) SearchTasks(_ string, _ []string, _ obsidian.TaskFilters) ([]obsidian.Task, error) {
+	return nil, nil
+}
+
 func TestSearchNotesContent(t *testing.T) {
 	t.Run("Successful content search with single match", func(t *testing.T) {
 		vault := mocks.MockVaultOperator{Name: "myVault"}

@@ -30,6 +30,7 @@ type NoteManager interface {
 	GetNotesList(string) ([]string, error)
 	SearchNotesWithSnippets(string, string) ([]NoteMatch, error)
 	FindBacklinks(string, string) ([]NoteMatch, error)
+	SearchTasks(vaultPath string, folders []string, filters TaskFilters) ([]Task, error)
 }
 
 func (m *Note) Move(originalPath string, newPath string) error {
@@ -273,6 +274,66 @@ func (m *Note) SearchNotesWithSnippets(vaultPath string, query string) ([]NoteMa
 		return nil, err
 	}
 	return matches, nil
+}
+
+func (m *Note) SearchTasks(vaultPath string, folders []string, filters TaskFilters) ([]Task, error) {
+	var tasks []Task
+
+	walkRoot := vaultPath
+	if len(folders) == 1 {
+		walkRoot = filepath.Join(vaultPath, folders[0])
+		folders = nil // handled by walkRoot
+	}
+
+	err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(vaultPath, path)
+		if err != nil {
+			return err
+		}
+
+		// Filter by folders when more than one was specified
+		if len(folders) > 0 {
+			matched := false
+			for _, folder := range folders {
+				if strings.HasPrefix(relPath, folder+string(filepath.Separator)) || strings.HasPrefix(relPath, folder+"/") {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return nil
+			}
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil //nolint:nilerr
+		}
+
+		lines := strings.Split(string(content), "\n")
+		for i, line := range lines {
+			task, ok := ParseTask(line)
+			if !ok {
+				continue
+			}
+			if !task.MatchesFilters(filters) {
+				continue
+			}
+			task.FilePath = relPath
+			task.LineNumber = i + 1
+			tasks = append(tasks, *task)
+		}
+		return nil
+	})
+
+	return tasks, err
 }
 
 const maxFileSizeBytes = 10 * 1024 * 1024 // 10MB
