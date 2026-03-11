@@ -622,6 +622,7 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 		Status    string `json:"status"`
 		Scheduled string `json:"scheduled"`
 		NewList   string `json:"new_list"`
+		Title     string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -636,6 +637,21 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	absPath := filepath.Join(vaultPath, obsidian.AddMdSuffix(notePath))
 
 	switch body.Action {
+	case "rename":
+		if body.Line < 1 {
+			jsonError(w, http.StatusBadRequest, "line must be >= 1")
+			return
+		}
+		if body.Title == "" {
+			jsonError(w, http.StatusBadRequest, "title is required")
+			return
+		}
+		if err := tasks.RenameTask(absPath, body.Line, body.Title); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "title": body.Title})
+
 	case "schedule":
 		if body.Line < 1 {
 			jsonError(w, http.StatusBadRequest, "line must be >= 1")

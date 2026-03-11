@@ -196,7 +196,18 @@ func tomorrow() string {
 	return time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 }
 
-// FilterToday returns tasks due or scheduled today or earlier that are not completed.
+// containsTagCI returns true if tags contains the given tag (case-insensitive).
+func containsTagCI(tags []string, tag string) bool {
+	tagLower := strings.ToLower(tag)
+	for _, t := range tags {
+		if strings.ToLower(t) == tagLower {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterToday returns incomplete tasks due or scheduled exactly today, or tagged #Today.
 func FilterToday(tasks []Task) []Task {
 	td := today()
 	var result []Task
@@ -204,7 +215,10 @@ func FilterToday(tasks []Task) []Task {
 		if t.Status == StatusCompleted {
 			continue
 		}
-		if (t.Due != "" && t.Due[:10] <= td) || (t.Scheduled != "" && t.Scheduled[:10] <= td) {
+		dueToday := t.Due != "" && t.Due[:10] == td
+		scheduledToday := t.Scheduled != "" && t.Scheduled[:10] == td
+		taggedToday := containsTagCI(t.Tags, "today")
+		if dueToday || scheduledToday || taggedToday {
 			result = append(result, t)
 		}
 	}
@@ -402,6 +416,49 @@ func FindListFile(vaultPath string, folders []string, listName string) (string, 
 		}
 	}
 	return "", os.ErrNotExist
+}
+
+// RenameTask replaces the title portion of a task line, preserving all metadata and tags.
+func RenameTask(absPath string, lineNum int, newTitle string) error {
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if lineNum < 1 || lineNum > len(lines) {
+		return nil
+	}
+
+	idx := lineNum - 1
+	line := lines[idx]
+	m := taskLineRe.FindStringSubmatch(line)
+	if m == nil {
+		return nil
+	}
+
+	raw := m[3]
+
+	// Collect metadata [key::value] parts and #tags to preserve them
+	var metaParts []string
+	for _, match := range dataviewRe.FindAllString(raw, -1) {
+		metaParts = append(metaParts, match)
+	}
+	var tagParts []string
+	for _, match := range tagRe.FindAllString(raw, -1) {
+		tagParts = append(tagParts, match)
+	}
+
+	newRaw := strings.TrimSpace(newTitle)
+	if len(metaParts) > 0 {
+		newRaw += " " + strings.Join(metaParts, " ")
+	}
+	if len(tagParts) > 0 {
+		newRaw += " " + strings.Join(tagParts, " ")
+	}
+
+	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + newRaw
+	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // MoveTask removes the task at lineNum from srcPath and appends it to dstPath.
