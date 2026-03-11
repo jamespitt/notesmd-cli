@@ -42,30 +42,48 @@ var (
 
 // ParseVault walks the vault and returns all tasks found in .md files.
 func ParseVault(vaultPath string) ([]Task, error) {
+	return ParseFolders(vaultPath, nil)
+}
+
+// ParseFolders walks the given folders within the vault and returns all tasks.
+// If folders is empty, the entire vault is walked.
+func ParseFolders(vaultPath string, folders []string) ([]Task, error) {
+	roots := []string{vaultPath}
+	if len(folders) > 0 {
+		roots = make([]string, len(folders))
+		for i, f := range folders {
+			roots[i] = filepath.Join(vaultPath, f)
+		}
+	}
+
 	var tasks []Task
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil //nolint:nilerr
+			}
+			if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") || strings.HasPrefix(d.Name(), ".") {
+				return nil
+			}
 
-	err := filepath.WalkDir(vaultPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil //nolint:nilerr
-		}
-		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") || strings.HasPrefix(d.Name(), ".") {
+			relPath, err := filepath.Rel(vaultPath, path)
+			if err != nil {
+				return nil //nolint:nilerr
+			}
+
+			fileTasks, err := parseFile(path, relPath)
+			if err != nil {
+				return nil //nolint:nilerr
+			}
+			tasks = append(tasks, fileTasks...)
 			return nil
-		}
-
-		relPath, err := filepath.Rel(vaultPath, path)
+		})
 		if err != nil {
-			return nil //nolint:nilerr
+			return tasks, err
 		}
+	}
 
-		fileTasks, err := parseFile(path, relPath)
-		if err != nil {
-			return nil //nolint:nilerr
-		}
-		tasks = append(tasks, fileTasks...)
-		return nil
-	})
-
-	return tasks, err
+	return tasks, nil
 }
 
 func parseFile(absPath, relPath string) ([]Task, error) {

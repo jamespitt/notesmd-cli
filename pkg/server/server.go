@@ -311,14 +311,28 @@ func (s *Server) getVaultPath(w http.ResponseWriter) (string, error) {
 	return vaultPath, nil
 }
 
+// getTaskFolders returns the configured task folders, or nil for the whole vault.
+func (s *Server) getTaskFolders(w http.ResponseWriter) ([]string, error) {
+	folders, err := s.vault.TaskFolders()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return nil, err
+	}
+	return folders, nil
+}
+
 // GET /api/tasks
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	vaultPath, err := s.getVaultPath(w)
 	if err != nil {
 		return
 	}
+	folders, err := s.getTaskFolders(w)
+	if err != nil {
+		return
+	}
 
-	all, err := tasks.ParseVault(vaultPath)
+	all, err := tasks.ParseFolders(vaultPath, folders)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -335,8 +349,12 @@ func (s *Server) listTasksToday(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	folders, err := s.getTaskFolders(w)
+	if err != nil {
+		return
+	}
 
-	all, err := tasks.ParseVault(vaultPath)
+	all, err := tasks.ParseFolders(vaultPath, folders)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -355,8 +373,12 @@ func (s *Server) listTasksOverdue(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	folders, err := s.getTaskFolders(w)
+	if err != nil {
+		return
+	}
 
-	all, err := tasks.ParseVault(vaultPath)
+	all, err := tasks.ParseFolders(vaultPath, folders)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
