@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -51,6 +52,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("GET /api/projects/{name}", s.getProject)
+	mux.HandleFunc("POST /api/projects/{name}/tasks", s.addProjectTask)
 
 	return withCORS(mux)
 }
@@ -833,6 +835,48 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 		"project": proj,
 		"tasks":   projectTasks,
 	})
+}
+
+// POST /api/projects/{name}/tasks
+// Body: { "title": "..." }
+// Appends a new task to the project's main .md file.
+func (s *Server) addProjectTask(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Title == "" {
+		jsonError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	vaultPath, err := s.getVaultPath(w)
+	if err != nil {
+		return
+	}
+	projectsFolder, err := s.getProjectsFolder(w)
+	if err != nil {
+		return
+	}
+
+	// The main project file has the same name as the directory
+	mainFile := filepath.Join(vaultPath, projectsFolder, name, name+".md")
+	if _, err := os.Stat(mainFile); err != nil {
+		jsonError(w, http.StatusNotFound, fmt.Sprintf("project file not found for %q", name))
+		return
+	}
+
+	if err := tasks.AppendTask(mainFile, body.Title); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonCreated(w, map[string]string{"project": name, "title": body.Title})
 }
 
 // sortTaskLists sorts a list of task names, keeping well-known names first.
