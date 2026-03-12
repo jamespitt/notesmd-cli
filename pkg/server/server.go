@@ -12,6 +12,7 @@ import (
 	"github.com/Yakitrak/notesmd-cli/pkg/actions"
 	"github.com/Yakitrak/notesmd-cli/pkg/frontmatter"
 	"github.com/Yakitrak/notesmd-cli/pkg/obsidian"
+	"github.com/Yakitrak/notesmd-cli/pkg/projects"
 	"github.com/Yakitrak/notesmd-cli/pkg/tasks"
 )
 
@@ -47,6 +48,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/list/{name}", s.addTask)
 	mux.HandleFunc("PATCH /api/tasks/{path...}", s.patchTask)
 	mux.HandleFunc("DELETE /api/tasks/{path...}", s.deleteTask)
+
+	mux.HandleFunc("GET /api/projects", s.listProjects)
+	mux.HandleFunc("GET /api/projects/{name}", s.getProject)
 
 	return withCORS(mux)
 }
@@ -745,6 +749,90 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOK(w, map[string]any{"path": notePath, "line": body.Line})
+}
+
+// getProjectsFolder returns the configured projects folder (e.g. "Projects").
+func (s *Server) getProjectsFolder(w http.ResponseWriter) (string, error) {
+	folder, err := s.vault.ProjectsFolder()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return "", err
+	}
+	return folder, nil
+}
+
+// GET /api/projects
+func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
+	vaultPath, err := s.getVaultPath(w)
+	if err != nil {
+		return
+	}
+	projectsFolder, err := s.getProjectsFolder(w)
+	if err != nil {
+		return
+	}
+
+	list, err := projects.ParseProjects(vaultPath, projectsFolder)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []projects.Project{}
+	}
+	jsonOK(w, map[string]any{"projects": list})
+}
+
+// GET /api/projects/{name}
+func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	vaultPath, err := s.getVaultPath(w)
+	if err != nil {
+		return
+	}
+	projectsFolder, err := s.getProjectsFolder(w)
+	if err != nil {
+		return
+	}
+	taskFolders, err := s.getTaskFolders(w)
+	if err != nil {
+		return
+	}
+
+	// Parse project metadata
+	list, err := projects.ParseProjects(vaultPath, projectsFolder)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var proj *projects.Project
+	for i := range list {
+		if list[i].Name == name {
+			proj = &list[i]
+			break
+		}
+	}
+	if proj == nil {
+		jsonError(w, http.StatusNotFound, fmt.Sprintf("project %q not found", name))
+		return
+	}
+
+	// Gather tasks
+	projectTasks, err := projects.GetProjectTasks(vaultPath, projectsFolder, name, taskFolders)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if projectTasks == nil {
+		projectTasks = []tasks.Task{}
+	}
+
+	jsonOK(w, map[string]any{
+		"project": proj,
+		"tasks":   projectTasks,
+	})
 }
 
 // sortTaskLists sorts a list of task names, keeping well-known names first.

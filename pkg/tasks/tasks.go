@@ -207,6 +207,31 @@ func containsTagCI(tags []string, tag string) bool {
 	return false
 }
 
+// ParseDir walks a specific absolute directory path and returns all tasks,
+// using vaultPath to produce relative file paths.
+func ParseDir(vaultPath, absDir string) ([]Task, error) {
+	var result []Task
+	err := filepath.WalkDir(absDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") || strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
+		relPath, err := filepath.Rel(vaultPath, path)
+		if err != nil {
+			return nil //nolint:nilerr
+		}
+		fileTasks, err := parseFile(path, relPath)
+		if err != nil {
+			return nil //nolint:nilerr
+		}
+		result = append(result, fileTasks...)
+		return nil
+	})
+	return result, err
+}
+
 // FilterToday returns incomplete tasks due or scheduled exactly today, or tagged #Today.
 func FilterToday(tasks []Task) []Task {
 	td := today()
