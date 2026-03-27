@@ -307,12 +307,12 @@ Append a new incomplete task to the named list file.
 
 ### `PATCH /api/tasks/{path}`
 
-Modify a task in place. The `path` is the vault-relative file path (`.md` extension optional). All actions require `line` (the 1-based line number from `line_num`).
+Modify a task in place. The `path` is the vault-relative file path (`.md` extension optional). All actions require either `line` (the 1-based line number from `line_num`) **or** `google_id` (preferred for calendar events). If both are provided, `line` takes precedence.
 
 **Toggle status:**
 ```json
 { "line": 14, "status": "completed" }
-{ "line": 14, "status": "todo" }
+{ "google_id": "UUdOdWVWUkVTX2I1SkJQVg", "status": "todo" }
 ```
 
 **Rename:**
@@ -345,11 +345,12 @@ Removes the task line from the source file and appends it to the destination lis
 
 ### `DELETE /api/tasks/{path}`
 
-Remove a task line from its file.
+Remove a task line from its file. Accepts either `line` or `google_id`.
 
 **Body:**
 ```json
 { "line": 14 }
+{ "google_id": "UUdOdWVWUkVTX2I1SkJQVg" }
 ```
 
 **Response:**

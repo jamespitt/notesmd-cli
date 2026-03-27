@@ -384,6 +384,24 @@ func DeleteTask(absPath string, lineNum int) error {
 	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
+// FindLineByGoogleID scans absPath and returns the 1-based line number of the task
+// whose [google_id::...] field matches googleID. Returns 0 if not found.
+func FindLineByGoogleID(absPath, googleID string) (int, error) {
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return 0, err
+	}
+	googleIDRe := regexp.MustCompile(`\[google_id::([^\]]+)\]`)
+	for i, line := range strings.Split(string(content), "\n") {
+		if taskLineRe.MatchString(line) {
+			if m := googleIDRe.FindStringSubmatch(line); m != nil && strings.TrimSpace(m[1]) == googleID {
+				return i + 1, nil
+			}
+		}
+	}
+	return 0, nil
+}
+
 // AppendTask appends a new incomplete task with the given title to the file at absPath.
 func AppendTask(absPath string, title string) error {
 	f, err := os.OpenFile(absPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)

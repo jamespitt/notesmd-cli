@@ -642,12 +642,14 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 // Existing: { "line": 42, "status": "completed" | "todo" }
 // New schedule: { "action": "schedule", "line": 42, "scheduled": "2026-03-11T14:00" }
 // New move:     { "action": "move", "line": 42, "new_list": "Work" }
+// google_id may be used in place of line for any action.
 func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	notePath := r.PathValue("path")
 
 	var body struct {
 		Action    string `json:"action"`
 		Line      int    `json:"line"`
+		GoogleID  string `json:"google_id"`
 		Status    string `json:"status"`
 		Scheduled string `json:"scheduled"`
 		Due       string `json:"due"`
@@ -665,6 +667,20 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	absPath := filepath.Join(vaultPath, obsidian.AddMdSuffix(notePath))
+
+	// Resolve google_id to a line number if provided instead of line.
+	if body.GoogleID != "" && body.Line == 0 {
+		lineNum, err := tasks.FindLineByGoogleID(absPath, body.GoogleID)
+		if err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if lineNum == 0 {
+			jsonError(w, http.StatusNotFound, fmt.Sprintf("task with google_id %q not found", body.GoogleID))
+			return
+		}
+		body.Line = lineNum
+	}
 
 	switch body.Action {
 	case "rename":
@@ -761,19 +777,16 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // DELETE /api/tasks/{path...}
-// Body: { "line": 42 }
+// Body: { "line": 42 } or { "google_id": "..." }
 func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 	notePath := r.PathValue("path")
 
 	var body struct {
-		Line int `json:"line"`
+		Line     int    `json:"line"`
+		GoogleID string `json:"google_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if body.Line < 1 {
-		jsonError(w, http.StatusBadRequest, "line must be >= 1")
 		return
 	}
 
@@ -783,6 +796,25 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	absPath := filepath.Join(vaultPath, obsidian.AddMdSuffix(notePath))
+
+	// Resolve google_id to a line number if provided instead of line.
+	if body.GoogleID != "" && body.Line == 0 {
+		lineNum, err := tasks.FindLineByGoogleID(absPath, body.GoogleID)
+		if err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if lineNum == 0 {
+			jsonError(w, http.StatusNotFound, fmt.Sprintf("task with google_id %q not found", body.GoogleID))
+			return
+		}
+		body.Line = lineNum
+	}
+
+	if body.Line < 1 {
+		jsonError(w, http.StatusBadRequest, "line or google_id is required")
+		return
+	}
 
 	if err := tasks.DeleteTask(absPath, body.Line); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
