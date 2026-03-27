@@ -285,7 +285,7 @@ func FilterTomorrow(tasks []Task) []Task {
 // FilterTimeline returns today's incomplete tasks that have both a start and end time
 // parsed from the title, sorted chronologically by start time.
 func FilterTimeline(tasks []Task) []Task {
-	today := today()
+	td := today()
 	var result []Task
 	for _, t := range tasks {
 		if t.Status == StatusCompleted {
@@ -294,10 +294,11 @@ func FilterTimeline(tasks []Task) []Task {
 		if t.StartTime == "" || t.EndTime == "" {
 			continue
 		}
-		// Only include tasks that are for today (scheduled or due today, or have no date filter)
-		isToday := (t.Due != "" && t.Due[:10] == today) ||
-			(t.Scheduled != "" && t.Scheduled[:10] == today)
-		if isToday {
+		dueToday := t.Due != "" && t.Due[:10] == td
+		scheduledToday := t.Scheduled != "" && t.Scheduled[:10] == td
+		taggedToday := containsTagCI(t.Tags, "today")
+		inTodayFile := strings.Contains(filepath.Base(t.FilePath), td)
+		if dueToday || scheduledToday || taggedToday || inTodayFile {
 			result = append(result, t)
 		}
 	}
@@ -388,6 +389,38 @@ func AppendTask(absPath string, title string) error {
 	defer f.Close()
 	_, err = f.WriteString("\n- [ ] " + title)
 	return err
+}
+
+// SetDue sets or replaces the [due::value] field on the task line at lineNum.
+func SetDue(absPath string, lineNum int, due string) error {
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if lineNum < 1 || lineNum > len(lines) {
+		return nil
+	}
+
+	idx := lineNum - 1
+	line := lines[idx]
+	m := taskLineRe.FindStringSubmatch(line)
+	if m == nil {
+		return nil
+	}
+
+	raw := m[3]
+
+	// Remove existing [due::...] and legacy emoji due date if present
+	raw = regexp.MustCompile(`\[due::[^\]]*\]`).ReplaceAllString(raw, "")
+	raw = legacyDueRe.ReplaceAllString(raw, "")
+	raw = strings.TrimSpace(raw)
+
+	raw = raw + " [due::" + due + "]"
+
+	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + strings.TrimSpace(raw)
+	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // SetScheduled sets or replaces the [scheduled::value] field on the task line at lineNum.

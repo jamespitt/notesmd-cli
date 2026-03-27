@@ -627,6 +627,7 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 		Line      int    `json:"line"`
 		Status    string `json:"status"`
 		Scheduled string `json:"scheduled"`
+		Due       string `json:"due"`
 		NewList   string `json:"new_list"`
 		Title     string `json:"title"`
 	}
@@ -657,6 +658,21 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "title": body.Title})
+
+	case "set-due":
+		if body.Line < 1 {
+			jsonError(w, http.StatusBadRequest, "line must be >= 1")
+			return
+		}
+		if body.Due == "" {
+			jsonError(w, http.StatusBadRequest, "due is required")
+			return
+		}
+		if err := tasks.SetDue(absPath, body.Line, body.Due); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "due": body.Due})
 
 	case "schedule":
 		if body.Line < 1 {
