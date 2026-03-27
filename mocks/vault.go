@@ -1,16 +1,18 @@
 package mocks
 
 type MockVaultOperator struct {
-	DefaultNameErr        error
-	PathError             error
-	Name                  string
-	PathValue             string
-	OpenType              string
-	OpenTypeErr           error
-	DefaultTaskFolders    []string
-	TaskFoldersErr        error
-	DefaultProjectsFolder string
-	ProjectsFolderErr     error
+	DefaultNameErr         error
+	PathError              error
+	Name                   string
+	PathValue              string
+	OpenType               string
+	OpenTypeErr            error
+	DefaultTaskFolders     []string
+	TaskFoldersErr         error
+	DefaultProjectsFolder  string
+	ProjectsFolderErr      error
+	DefaultCalendarFolder  string
+	CalendarFolderErr      error
 }
 
 func (m *MockVaultOperator) DefaultName() (string, error) {
@@ -62,4 +64,14 @@ func (m *MockVaultOperator) ProjectsFolder() (string, error) {
 		return m.DefaultProjectsFolder, nil
 	}
 	return "Projects", nil
+}
+
+func (m *MockVaultOperator) CalendarFolder() (string, error) {
+	if m.CalendarFolderErr != nil {
+		return "", m.CalendarFolderErr
+	}
+	if m.DefaultCalendarFolder != "" {
+		return m.DefaultCalendarFolder, nil
+	}
+	return "Journal/Calendar", nil
 }

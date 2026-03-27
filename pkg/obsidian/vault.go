@@ -1,10 +1,11 @@
 package obsidian
 
 type CliConfig struct {
-	DefaultVaultName      string   `json:"default_vault_name"`
-	DefaultOpenType       string   `json:"default_open_type,omitempty"`
-	DefaultTaskFolders    []string `json:"default_task_folders,omitempty"`
-	DefaultProjectsFolder string   `json:"default_projects_folder,omitempty"`
+	DefaultVaultName       string   `json:"default_vault_name"`
+	DefaultOpenType        string   `json:"default_open_type,omitempty"`
+	DefaultTaskFolders     []string `json:"default_task_folders,omitempty"`
+	DefaultProjectsFolder  string   `json:"default_projects_folder,omitempty"`
+	DefaultCalendarFolder  string   `json:"default_calendar_folder,omitempty"`
 }
 
 type ObsidianVaultConfig struct {
@@ -20,6 +21,7 @@ type VaultManager interface {
 	DefaultOpenType() (string, error)
 	TaskFolders() ([]string, error)
 	ProjectsFolder() (string, error)
+	CalendarFolder() (string, error)
 }
 
 type Vault struct {

@@ -26,6 +26,7 @@ type Task struct {
 	LineNum   int      `json:"line_num"`
 	Title     string   `json:"title"`
 	Status    Status   `json:"status"`
+	Type      string   `json:"type"` // "task" or "event"
 	Due       string   `json:"due,omitempty"`
 	Scheduled string   `json:"scheduled,omitempty"`
 	Priority  string   `json:"priority,omitempty"`
@@ -35,6 +36,7 @@ type Task struct {
 	ListName  string   `json:"list_name,omitempty"`
 	StartTime string   `json:"start_time,omitempty"`
 	EndTime   string   `json:"end_time,omitempty"`
+	GoogleID  string   `json:"google_id,omitempty"`
 }
 
 var (
@@ -175,6 +177,7 @@ func parseLine(line, filePath string, lineNum int) *Task {
 		LineNum:   lineNum,
 		Title:     title,
 		Status:    status,
+		Type:      "task",
 		Due:       due,
 		Scheduled: fields["scheduled"],
 		Priority:  fields["priority"],
@@ -183,6 +186,7 @@ func parseLine(line, filePath string, lineNum int) *Task {
 		Level:     level,
 		StartTime: startTime,
 		EndTime:   endTime,
+		GoogleID:  fields["google_id"],
 	}
 }
 

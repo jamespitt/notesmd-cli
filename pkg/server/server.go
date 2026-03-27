@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Yakitrak/notesmd-cli/pkg/actions"
@@ -337,7 +338,18 @@ func (s *Server) getTaskFolders(w http.ResponseWriter) ([]string, error) {
 	return folders, nil
 }
 
-// parseTasks is a shared helper that parses tasks from the configured vault/folders.
+// getCalendarFolder returns the configured calendar folder.
+func (s *Server) getCalendarFolder(w http.ResponseWriter) (string, error) {
+	folder, err := s.vault.CalendarFolder()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return "", err
+	}
+	return folder, nil
+}
+
+// parseTasks is a shared helper that parses tasks from the configured vault/folders,
+// classifying tasks from the calendar folder as type "event".
 func (s *Server) parseTasks(w http.ResponseWriter) ([]tasks.Task, string, []string, error) {
 	vaultPath, err := s.getVaultPath(w)
 	if err != nil {
@@ -347,10 +359,21 @@ func (s *Server) parseTasks(w http.ResponseWriter) ([]tasks.Task, string, []stri
 	if err != nil {
 		return nil, "", nil, err
 	}
+	calendarFolder, err := s.getCalendarFolder(w)
+	if err != nil {
+		return nil, "", nil, err
+	}
 	all, err := tasks.ParseFolders(vaultPath, folders)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return nil, "", nil, err
+	}
+	// Classify tasks from the calendar folder as events.
+	calendarPrefix := filepath.ToSlash(calendarFolder) + "/"
+	for i := range all {
+		if strings.HasPrefix(filepath.ToSlash(all[i].FilePath), calendarPrefix) {
+			all[i].Type = "event"
+		}
 	}
 	return all, vaultPath, folders, nil
 }

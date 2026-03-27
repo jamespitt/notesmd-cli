@@ -37,6 +37,7 @@ The server reads settings from `~/.config/notesmd-cli/config.json`:
 | `default_vault_name` | — | Which vault to use when `--vault` is not passed |
 | `default_task_folders` | (whole vault) | Folders to scan for tasks; scans entire vault if empty |
 | `default_projects_folder` | `"Projects"` | Folder that contains project subdirectories |
+| `default_calendar_folder` | `"Journal/Calendar"` | Folder containing calendar event files; tasks from here are returned with `type: "event"` |
 
 ---
 
@@ -170,6 +171,7 @@ Tasks are Obsidian markdown checkbox items. The server scans the configured `def
   "line_num": 14,
   "title": "09:30-10:30 Team standup",
   "status": "todo",
+  "type": "task",
   "due": "2026-04-01",
   "scheduled": "2026-03-27T09:30",
   "priority": "high",
@@ -178,7 +180,8 @@ Tasks are Obsidian markdown checkbox items. The server scans the configured `def
   "level": 0,
   "list_name": "Work",
   "start_time": "09:30",
-  "end_time": "10:30"
+  "end_time": "10:30",
+  "google_id": "UUdOdWVWUkVTX2I1SkJQVg"
 }
 ```
 
@@ -188,6 +191,7 @@ Tasks are Obsidian markdown checkbox items. The server scans the configured `def
 | `line_num` | 1-based line number in the file (used for all write operations) |
 | `title` | Raw task title as written in the file |
 | `status` | `"todo"` or `"completed"` |
+| `type` | `"task"` (regular task) or `"event"` (from the configured calendar folder) |
 | `due` | From `[due::YYYY-MM-DD]` or `📅 YYYY-MM-DD` |
 | `scheduled` | From `[scheduled::YYYY-MM-DD]` or `[scheduled::YYYY-MM-DDTHH:MM]` |
 | `priority` | From `[priority::high\|medium\|low]` |
@@ -197,6 +201,7 @@ Tasks are Obsidian markdown checkbox items. The server scans the configured `def
 | `list_name` | File stem of the source file (e.g. `Work.md` → `"Work"`) |
 | `start_time` | Parsed from `HH:MM` or `HH:MM-HH:MM` prefix in the title |
 | `end_time` | Parsed from `HH:MM-HH:MM` prefix in the title |
+| `google_id` | From `[google_id::...]`; used as the stable unique identifier for calendar events |
 
 ---
 
@@ -238,6 +243,8 @@ Incomplete timed tasks for today, sorted chronologically by start time. A task i
 - `scheduled` or `due` == today
 - Tagged `#Today`
 - File name contains today's date (e.g. `Calendar_2026-03-27.md`)
+
+Results include both `type: "task"` and `type: "event"` items.
 
 ---
 
