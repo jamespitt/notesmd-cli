@@ -1,4 +1,5 @@
 #!/bin/bash
+git pull
 go build -o notesmd-cli .
 systemctl stop --user notesmd-cli.service
 lsof /usr/local/bin/notesmd-cli
