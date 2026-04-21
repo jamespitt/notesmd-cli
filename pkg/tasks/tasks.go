@@ -37,6 +37,7 @@ type Task struct {
 	StartTime string   `json:"start_time,omitempty"`
 	EndTime   string   `json:"end_time,omitempty"`
 	GoogleID  string   `json:"google_id,omitempty"`
+	EventID   string   `json:"event_id,omitempty"`
 }
 
 var (
@@ -187,6 +188,7 @@ func parseLine(line, filePath string, lineNum int) *Task {
 		StartTime: startTime,
 		EndTime:   endTime,
 		GoogleID:  fields["google_id"],
+		EventID:   fields["event_id"],
 	}
 }
 

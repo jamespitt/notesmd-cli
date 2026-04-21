@@ -48,8 +48,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tasks/lists", s.listTaskLists)
 	mux.HandleFunc("GET /api/tasks/list/{name}", s.listTasksByList)
 	mux.HandleFunc("POST /api/tasks/list/{name}", s.addTask)
+	mux.HandleFunc("GET /api/tasks/hidden", s.getHiddenEvents)
+	mux.HandleFunc("POST /api/tasks/hidden", s.hideEvent)
+	mux.HandleFunc("DELETE /api/tasks/hidden/{event_id}", s.unhideEvent)
 	mux.HandleFunc("PATCH /api/tasks/{path...}", s.patchTask)
 	mux.HandleFunc("DELETE /api/tasks/{path...}", s.deleteTask)
+
+	mux.HandleFunc("GET /api/journal/today/diary", s.getTodayDiary)
+	mux.HandleFunc("POST /api/journal/today/diary", s.postTodayDiary)
 
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("GET /api/projects/{name}", s.getProject)
@@ -375,6 +381,8 @@ func (s *Server) parseTasks(w http.ResponseWriter) ([]tasks.Task, string, []stri
 			all[i].Type = "event"
 		}
 	}
+	// Remove events the user has hidden.
+	all = tasks.FilterHiddenEvents(all)
 	return all, vaultPath, folders, nil
 }
 
@@ -727,6 +735,18 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "scheduled": body.Scheduled})
+
+	case "reschedule":
+		if body.Line < 1 {
+			jsonError(w, http.StatusBadRequest, "line must be >= 1")
+			return
+		}
+		nextDue, err := tasks.RescheduleTask(absPath, body.Line)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "due": nextDue})
 
 	case "move":
 		if body.Line < 1 {
