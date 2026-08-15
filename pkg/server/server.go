@@ -3,7 +3,9 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +19,27 @@ import (
 	"github.com/Yakitrak/notesmd-cli/pkg/projects"
 	"github.com/Yakitrak/notesmd-cli/pkg/tasks"
 )
+
+// zapmeow (WhatsApp bridge) connection settings. Overridable via env vars so
+// the proxy target can change without a rebuild.
+const (
+	defaultZapmeowURL        = "http://localhost:8900"
+	defaultZapmeowInstanceID = "1"
+)
+
+func zapmeowBaseURL() string {
+	if v := os.Getenv("ZAPMEOW_URL"); v != "" {
+		return v
+	}
+	return defaultZapmeowURL
+}
+
+func zapmeowInstanceID() string {
+	if v := os.Getenv("ZAPMEOW_INSTANCE_ID"); v != "" {
+		return v
+	}
+	return defaultZapmeowInstanceID
+}
 
 // Server holds the dependencies for the HTTP handlers.
 type Server struct {
@@ -60,6 +83,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("GET /api/projects/{name}", s.getProject)
 	mux.HandleFunc("POST /api/projects/{name}/tasks", s.addProjectTask)
+
+	mux.HandleFunc("GET /api/whatsapp/messages", s.getWhatsappMessages)
+	mux.HandleFunc("GET /api/whatsapp/chats", s.getWhatsappChats)
 
 	return withCORS(mux)
 }
@@ -975,4 +1001,45 @@ func (s *Server) addProjectTask(w http.ResponseWriter, r *http.Request) {
 func sortTaskLists(lists []string) []string {
 	sort.Strings(lists)
 	return lists
+}
+
+// proxyToZapmeow forwards the request to the given zapmeow API path, copying
+// over the named query params where present, and streams the response back.
+func proxyToZapmeow(w http.ResponseWriter, r *http.Request, path string, passThroughParams ...string) {
+	target := fmt.Sprintf("%s/api/%s%s", zapmeowBaseURL(), zapmeowInstanceID(), path)
+
+	q := url.Values{}
+	for _, name := range passThroughParams {
+		if v := r.URL.Query().Get(name); v != "" {
+			q.Set(name, v)
+		}
+	}
+	if len(q) > 0 {
+		target += "?" + q.Encode()
+	}
+
+	resp, err := http.Get(target)
+	if err != nil {
+		jsonError(w, http.StatusBadGateway, "failed to reach whatsapp service: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body) //nolint:errcheck
+}
+
+// GET /api/whatsapp/messages?chat=&limit=&before=
+// Proxies to zapmeow's all-messages endpoint for the configured WhatsApp
+// instance. chat scopes to a single chat JID; omit it for all chats.
+func (s *Server) getWhatsappMessages(w http.ResponseWriter, r *http.Request) {
+	proxyToZapmeow(w, r, "/chat/all-messages", "chat", "limit", "before")
+}
+
+// GET /api/whatsapp/chats
+// Proxies to zapmeow's chats endpoint: one summary row per chat (group or
+// person), newest activity first.
+func (s *Server) getWhatsappChats(w http.ResponseWriter, r *http.Request) {
+	proxyToZapmeow(w, r, "/chats")
 }
