@@ -67,6 +67,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tasks/tomorrow", s.listTasksTomorrow)
 	mux.HandleFunc("GET /api/tasks/overdue", s.listTasksOverdue)
 	mux.HandleFunc("GET /api/tasks/timeline", s.listTasksTimeline)
+	mux.HandleFunc("GET /api/tasks/kanban", s.listTasksKanban)
 	mux.HandleFunc("GET /api/tasks/now", s.getTasksNow)
 	mux.HandleFunc("GET /api/tasks/lists", s.listTaskLists)
 	mux.HandleFunc("GET /api/tasks/list/{name}", s.listTasksByList)
@@ -477,6 +478,19 @@ func (s *Server) listTasksTimeline(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"tasks": result})
 }
 
+// GET /api/tasks/kanban
+func (s *Server) listTasksKanban(w http.ResponseWriter, r *http.Request) {
+	all, _, _, err := s.parseTasks(w)
+	if err != nil {
+		return
+	}
+	result := tasks.FilterKanban(all)
+	if result == nil {
+		result = []tasks.Task{}
+	}
+	jsonOK(w, map[string]any{"tasks": result})
+}
+
 // nowContext holds the contextual task set for the "now" view.
 type nowContext struct {
 	Last       *tasks.Task `json:"last,omitempty"`
@@ -676,19 +690,21 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 // Existing: { "line": 42, "status": "completed" | "todo" }
 // New schedule: { "action": "schedule", "line": 42, "scheduled": "2026-03-11T14:00" }
 // New move:     { "action": "move", "line": 42, "new_list": "Work" }
+// New kanban:   { "action": "set-status-tag", "line": 42, "kanban_status": "ToDo" | "InProgress" | "Done" | "" }
 // google_id may be used in place of line for any action.
 func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	notePath := r.PathValue("path")
 
 	var body struct {
-		Action    string `json:"action"`
-		Line      int    `json:"line"`
-		GoogleID  string `json:"google_id"`
-		Status    string `json:"status"`
-		Scheduled string `json:"scheduled"`
-		Due       string `json:"due"`
-		NewList   string `json:"new_list"`
-		Title     string `json:"title"`
+		Action       string `json:"action"`
+		Line         int    `json:"line"`
+		GoogleID     string `json:"google_id"`
+		Status       string `json:"status"`
+		Scheduled    string `json:"scheduled"`
+		Due          string `json:"due"`
+		NewList      string `json:"new_list"`
+		Title        string `json:"title"`
+		KanbanStatus string `json:"kanban_status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -797,6 +813,37 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "new_list": body.NewList})
+
+	case "set-status-tag":
+		if body.Line < 1 {
+			jsonError(w, http.StatusBadRequest, "line must be >= 1")
+			return
+		}
+		valid := body.KanbanStatus == ""
+		for _, kt := range tasks.KanbanTags {
+			if body.KanbanStatus == kt {
+				valid = true
+			}
+		}
+		if !valid {
+			jsonError(w, http.StatusBadRequest, fmt.Sprintf("kanban_status must be one of %v or empty", tasks.KanbanTags))
+			return
+		}
+		if err := tasks.SetStatusTag(absPath, body.Line, body.KanbanStatus); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// Keep completion in sync with the Done column: moving a card onto
+		// Done also checks it off; moving it anywhere else un-checks it.
+		newTaskStatus := tasks.StatusTodo
+		if body.KanbanStatus == "Done" {
+			newTaskStatus = tasks.StatusCompleted
+		}
+		if err := tasks.ToggleStatus(absPath, body.Line, newTaskStatus); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "kanban_status": body.KanbanStatus})
 
 	default:
 		// Original toggle-status behaviour

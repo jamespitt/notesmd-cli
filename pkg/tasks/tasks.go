@@ -213,6 +213,35 @@ func containsTagCI(tags []string, tag string) bool {
 	return false
 }
 
+// KanbanTags are the mutually-exclusive status tags that place a task on the
+// Kanban board. A task carries at most one of these at a time.
+var KanbanTags = []string{"ToDo", "InProgress", "Done"}
+
+// KanbanStatus returns the task's current Kanban status ("ToDo", "InProgress",
+// or "Done"), or "" if it carries none of the KanbanTags and so isn't on the
+// board.
+func KanbanStatus(t Task) string {
+	for _, kt := range KanbanTags {
+		if containsTagCI(t.Tags, kt) {
+			return kt
+		}
+	}
+	return ""
+}
+
+// FilterKanban returns tasks that carry one of the KanbanTags, regardless of
+// completion status (a "Done" card is typically also completed, but the
+// board is driven by the tag, not the checkbox).
+func FilterKanban(tasks []Task) []Task {
+	var result []Task
+	for _, t := range tasks {
+		if KanbanStatus(t) != "" {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
 // ParseDir walks a specific absolute directory path and returns all tasks,
 // using vaultPath to produce relative file paths.
 func ParseDir(vaultPath, absDir string) ([]Task, error) {
@@ -476,6 +505,45 @@ func SetScheduled(absPath string, lineNum int, scheduled string) error {
 	raw = raw + " [scheduled::" + scheduled + "]"
 
 	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + strings.TrimSpace(raw)
+	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+// SetStatusTag sets the task's Kanban status tag on the task line at lineNum,
+// replacing any existing tag from KanbanTags while leaving every other tag
+// and field on the line untouched. Pass status="" to take the task off the
+// board (remove any KanbanTags tag without adding a new one). status must be
+// one of KanbanTags or "".
+func SetStatusTag(absPath string, lineNum int, status string) error {
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if lineNum < 1 || lineNum > len(lines) {
+		return nil
+	}
+
+	idx := lineNum - 1
+	line := lines[idx]
+	m := taskLineRe.FindStringSubmatch(line)
+	if m == nil {
+		return nil
+	}
+
+	raw := m[3]
+
+	// Remove any existing Kanban status tag; every other tag is untouched.
+	for _, kt := range KanbanTags {
+		raw = regexp.MustCompile(`(?i)#`+kt+`\b`).ReplaceAllString(raw, "")
+	}
+	raw = strings.TrimSpace(raw)
+
+	if status != "" {
+		raw = strings.TrimSpace(raw + " #" + status)
+	}
+
+	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + raw
 	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
