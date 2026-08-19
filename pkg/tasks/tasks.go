@@ -547,6 +547,41 @@ func SetStatusTag(absPath string, lineNum int, status string) error {
 	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
+// SetTags replaces every tag on the task line at lineNum with the given
+// tags, in order. The title and every [key::value] field are left
+// untouched. Pass an empty slice to strip all tags from the task.
+func SetTags(absPath string, lineNum int, tags []string) error {
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if lineNum < 1 || lineNum > len(lines) {
+		return nil
+	}
+
+	idx := lineNum - 1
+	line := lines[idx]
+	m := taskLineRe.FindStringSubmatch(line)
+	if m == nil {
+		return nil
+	}
+
+	raw := strings.TrimSpace(tagRe.ReplaceAllString(m[3], ""))
+
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		raw = strings.TrimSpace(raw + " #" + t)
+	}
+
+	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + raw
+	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+}
+
 // FindListFile searches task folders within vaultPath for a file named {listName}.md.
 // Returns the absolute path of the file if found, or an error.
 func FindListFile(vaultPath string, folders []string, listName string) (string, error) {

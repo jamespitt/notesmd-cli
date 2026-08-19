@@ -248,6 +248,16 @@ Results include both `type: "task"` and `type: "event"` items.
 
 ---
 
+### `GET /api/tasks/kanban`
+
+Tasks carrying one of the Kanban status tags (`ToDo`, `InProgress`, `Done` - case-insensitive), sorted column-major (all `ToDo`, then all `InProgress`, then all `Done`). Unlike every other view, completed tasks are **not** excluded - a `Done` card is normally also completed, since moving a card onto Done via `PATCH .../set-status-tag` checks it off too.
+
+```json
+{ "tasks": [ /* task objects */ ] }
+```
+
+---
+
 ### `GET /api/tasks/now`
 
 Returns contextual task information based on the current time, derived from today's timed tasks:
@@ -338,6 +348,19 @@ Replaces any existing `[scheduled::...]`.
 { "action": "move", "line": 14, "new_list": "Personal" }
 ```
 Removes the task line from the source file and appends it to the destination list file (looked up by name within the configured task folders).
+
+**Set Kanban status:**
+```json
+{ "action": "set-status-tag", "line": 14, "kanban_status": "InProgress" }
+{ "action": "set-status-tag", "line": 14, "kanban_status": "" }
+```
+Replaces any existing `ToDo`/`InProgress`/`Done` tag with the given one (every other tag is untouched); `kanban_status` must be one of those three or `""` to take the task off the board. Also keeps completion in sync: setting `"Done"` checks the task off, anything else (including `""`) un-checks it.
+
+**Set tags:**
+```json
+{ "action": "set-tags", "line": 14, "tags": ["groceries", "urgent"] }
+```
+Replaces the task's entire tag set with the given list, in order (an empty array removes all tags). The title and every `[key::value]` field are left untouched. Unlike `set-status-tag`, this never touches completion status - it's a plain tag edit.
 
 **Response** (all actions): HTTP `200` with the updated field values echoed back.
 

@@ -691,20 +691,22 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 // New schedule: { "action": "schedule", "line": 42, "scheduled": "2026-03-11T14:00" }
 // New move:     { "action": "move", "line": 42, "new_list": "Work" }
 // New kanban:   { "action": "set-status-tag", "line": 42, "kanban_status": "ToDo" | "InProgress" | "Done" | "" }
+// New tags:     { "action": "set-tags", "line": 42, "tags": ["groceries", "urgent"] }
 // google_id may be used in place of line for any action.
 func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	notePath := r.PathValue("path")
 
 	var body struct {
-		Action       string `json:"action"`
-		Line         int    `json:"line"`
-		GoogleID     string `json:"google_id"`
-		Status       string `json:"status"`
-		Scheduled    string `json:"scheduled"`
-		Due          string `json:"due"`
-		NewList      string `json:"new_list"`
-		Title        string `json:"title"`
-		KanbanStatus string `json:"kanban_status"`
+		Action       string   `json:"action"`
+		Line         int      `json:"line"`
+		GoogleID     string   `json:"google_id"`
+		Status       string   `json:"status"`
+		Scheduled    string   `json:"scheduled"`
+		Due          string   `json:"due"`
+		NewList      string   `json:"new_list"`
+		Title        string   `json:"title"`
+		KanbanStatus string   `json:"kanban_status"`
+		Tags         []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -844,6 +846,17 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "kanban_status": body.KanbanStatus})
+
+	case "set-tags":
+		if body.Line < 1 {
+			jsonError(w, http.StatusBadRequest, "line must be >= 1")
+			return
+		}
+		if err := tasks.SetTags(absPath, body.Line, body.Tags); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "tags": body.Tags})
 
 	default:
 		// Original toggle-status behaviour
