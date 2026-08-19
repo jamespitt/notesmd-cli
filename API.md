@@ -178,6 +178,7 @@ Tasks are Obsidian markdown checkbox items. The server scans the configured `def
   "repeat": "weekly",
   "tags": ["Work", "Today"],
   "level": 0,
+  "parent_id": "Tasks/Work.md:12",
   "list_name": "Work",
   "start_time": "09:30",
   "end_time": "10:30",
@@ -198,6 +199,7 @@ Tasks are Obsidian markdown checkbox items. The server scans the configured `def
 | `repeat` | From `[repeat::...]` |
 | `tags` | `#Tag` values (without `#`) |
 | `level` | Indentation level (0 = top-level) |
+| `parent_id` | `"file_path:line_num"` of the parent task, absent for top-level tasks. Recomputed fresh on every parse - same as `line_num` itself, it goes stale the instant a line above it is added or removed, until the next fetch. Matches a task's own identity, i.e. `parent_id === "{file_path}:{line_num}"` of another task in the same response. |
 | `list_name` | File stem of the source file (e.g. `Work.md` → `"Work"`) |
 | `start_time` | Parsed from `HH:MM` or `HH:MM-HH:MM` prefix in the title |
 | `end_time` | Parsed from `HH:MM-HH:MM` prefix in the title |
@@ -347,7 +349,7 @@ Replaces any existing `[scheduled::...]`.
 ```json
 { "action": "move", "line": 14, "new_list": "Personal" }
 ```
-Removes the task line from the source file and appends it to the destination list file (looked up by name within the configured task folders).
+Removes the task line - along with any of its existing children (contiguous lines indented deeper than it) - from the source file and appends the whole block to the destination list file (looked up by name within the configured task folders), preserving indentation relative to the moved parent. `line` must be the parent's own line; moving a child mid-tree brings only *its* descendants, not its siblings.
 
 **Set Kanban status:**
 ```json
@@ -361,6 +363,23 @@ Replaces any existing `ToDo`/`InProgress`/`Done` tag with the given one (every o
 { "action": "set-tags", "line": 14, "tags": ["groceries", "urgent"] }
 ```
 Replaces the task's entire tag set with the given list, in order (an empty array removes all tags). The title and every `[key::value]` field are left untouched. Unlike `set-status-tag`, this never touches completion status - it's a plain tag edit.
+
+**Edit (multiple fields at once):**
+```json
+{
+  "action": "edit", "line": 14,
+  "title": "New title", "due": "2026-04-01", "scheduled": "",
+  "priority": "high", "repeat": "every day",
+  "tags": ["groceries", "urgent"], "new_list": "Work"
+}
+```
+Applies any combination of field updates in a single rewrite. **A field key omitted from the JSON body is left completely unchanged; an empty string clears it** (e.g. `"scheduled": ""` above removes the scheduled date while due/priority/repeat are set). `tags`, when present, replaces the entire tag set the same as `set-tags` (omit it to leave tags untouched). `new_list`, when present and different from the task's current list, moves the task there as a follow-up step (same mechanics as the `move` action) after the field edit is written. Every other `[key::value]` field on the line not covered above (e.g. `google_id`, custom fields) is preserved regardless.
+
+**Add a subtask:**
+```json
+{ "action": "add-subtask", "line": 14, "title": "New subtask" }
+```
+`line` is the **parent** task's line. Inserts a new incomplete task indented one level deeper than the parent, positioned after any of the parent's existing children (so it becomes the last child) - in the same file. Nesting is still purely inferred from indentation on disk; `parent_id` in the Task object (see above) is a read-time convenience computed from that indentation, not a separate stored concept, so a subtask only needs correct indentation to be recognized as a child - and to get the right `parent_id` - on the next read.
 
 **Response** (all actions): HTTP `200` with the updated field values echoed back.
 

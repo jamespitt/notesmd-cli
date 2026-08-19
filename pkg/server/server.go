@@ -692,6 +692,12 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 // New move:     { "action": "move", "line": 42, "new_list": "Work" }
 // New kanban:   { "action": "set-status-tag", "line": 42, "kanban_status": "ToDo" | "InProgress" | "Done" | "" }
 // New tags:     { "action": "set-tags", "line": 42, "tags": ["groceries", "urgent"] }
+// New edit:     { "action": "edit", "line": 42, "title": "...", "due": "...", "scheduled": "...",
+//                 "priority": "...", "repeat": "...", "tags": [...], "new_list": "Work" }
+//                 - any field omitted from the JSON body is left unchanged; an empty string
+//                   clears that field. tags/new_list follow the same nil-vs-empty rule.
+// New subtask:  { "action": "add-subtask", "line": 42, "title": "..." }
+//                 - line is the PARENT task's line; the new task is inserted indented under it.
 // google_id may be used in place of line for any action.
 func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	notePath := r.PathValue("path")
@@ -701,10 +707,12 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 		Line         int      `json:"line"`
 		GoogleID     string   `json:"google_id"`
 		Status       string   `json:"status"`
-		Scheduled    string   `json:"scheduled"`
-		Due          string   `json:"due"`
+		Scheduled    *string  `json:"scheduled"`
+		Due          *string  `json:"due"`
 		NewList      string   `json:"new_list"`
-		Title        string   `json:"title"`
+		Title        *string  `json:"title"`
+		Priority     *string  `json:"priority"`
+		Repeat       *string  `json:"repeat"`
 		KanbanStatus string   `json:"kanban_status"`
 		Tags         []string `json:"tags"`
 	}
@@ -740,45 +748,45 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, "line must be >= 1")
 			return
 		}
-		if body.Title == "" {
+		if body.Title == nil || strings.TrimSpace(*body.Title) == "" {
 			jsonError(w, http.StatusBadRequest, "title is required")
 			return
 		}
-		if err := tasks.RenameTask(absPath, body.Line, body.Title); err != nil {
+		if err := tasks.RenameTask(absPath, body.Line, *body.Title); err != nil {
 			jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "title": body.Title})
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "title": *body.Title})
 
 	case "set-due":
 		if body.Line < 1 {
 			jsonError(w, http.StatusBadRequest, "line must be >= 1")
 			return
 		}
-		if body.Due == "" {
+		if body.Due == nil || *body.Due == "" {
 			jsonError(w, http.StatusBadRequest, "due is required")
 			return
 		}
-		if err := tasks.SetDue(absPath, body.Line, body.Due); err != nil {
+		if err := tasks.SetDue(absPath, body.Line, *body.Due); err != nil {
 			jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "due": body.Due})
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "due": *body.Due})
 
 	case "schedule":
 		if body.Line < 1 {
 			jsonError(w, http.StatusBadRequest, "line must be >= 1")
 			return
 		}
-		if body.Scheduled == "" {
+		if body.Scheduled == nil || *body.Scheduled == "" {
 			jsonError(w, http.StatusBadRequest, "scheduled is required")
 			return
 		}
-		if err := tasks.SetScheduled(absPath, body.Line, body.Scheduled); err != nil {
+		if err := tasks.SetScheduled(absPath, body.Line, *body.Scheduled); err != nil {
 			jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "scheduled": body.Scheduled})
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "scheduled": *body.Scheduled})
 
 	case "reschedule":
 		if body.Line < 1 {
@@ -857,6 +865,63 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "tags": body.Tags})
+
+	case "edit":
+		if body.Line < 1 {
+			jsonError(w, http.StatusBadRequest, "line must be >= 1")
+			return
+		}
+		if body.Title != nil && strings.TrimSpace(*body.Title) == "" {
+			jsonError(w, http.StatusBadRequest, "title cannot be empty")
+			return
+		}
+		edit := tasks.TaskEdit{
+			Title:     body.Title,
+			Due:       body.Due,
+			Scheduled: body.Scheduled,
+			Priority:  body.Priority,
+			Repeat:    body.Repeat,
+		}
+		if body.Tags != nil {
+			edit.Tags = &body.Tags
+		}
+		if err := tasks.EditTask(absPath, body.Line, edit); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		// Optionally also move to a different list, same as the "move" action.
+		if body.NewList != "" {
+			folders, err := s.getTaskFolders(w)
+			if err != nil {
+				return
+			}
+			dstPath, err := tasks.FindListFile(vaultPath, folders, body.NewList)
+			if err != nil {
+				jsonError(w, http.StatusNotFound, fmt.Sprintf("list %q not found", body.NewList))
+				return
+			}
+			if err := tasks.MoveTask(absPath, body.Line, dstPath); err != nil {
+				jsonError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line})
+
+	case "add-subtask":
+		if body.Line < 1 {
+			jsonError(w, http.StatusBadRequest, "line must be >= 1")
+			return
+		}
+		if body.Title == nil || strings.TrimSpace(*body.Title) == "" {
+			jsonError(w, http.StatusBadRequest, "title is required")
+			return
+		}
+		if err := tasks.AppendSubtask(absPath, body.Line, *body.Title); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "title": *body.Title})
 
 	default:
 		// Original toggle-status behaviour

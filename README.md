@@ -352,6 +352,41 @@ notesmd-cli frontmatter "{note-name}" --delete --key "draft"
 notesmd-cli frontmatter "{note-name}" --print --vault "{vault-name}"
 ```
 
+### Search Tasks
+
+Search markdown checkbox tasks across the vault, filtered by folder/tag/date.
+
+```bash
+# All of today's tasks (shorthand for --tag today --date <today>)
+notesmd-cli tasks --today
+
+# By tag (repeatable, OR logic) and/or an exact date
+notesmd-cli tasks --tag work --tag urgent
+notesmd-cli tasks --date 2026-02-20
+
+# By date range
+notesmd-cli tasks --from 2026-02-18 --to 2026-02-25
+
+# Restrict to specific folders (overrides configured task folders)
+notesmd-cli tasks --folder "Google Tasks" --folder "Projects"
+```
+
+Prints `path:line<TAB>raw task line`, unscheduled tasks first then scheduled ones chronologically.
+
+## Task Server
+
+`notesmd-cli serve` starts an HTTP API over the vault's tasks - list/create/edit/delete/move tasks (including subtasks and a Kanban view), plus project notes. It's the backend for `task-front-end`, a companion SvelteKit web app; `obsidian-kanban`, a companion Obsidian plugin, implements the same task-file conventions directly against the vault instead of over HTTP.
+
+```bash
+# Start on the default port (7070), using the default vault
+notesmd-cli serve
+
+# Choose a port and/or vault
+notesmd-cli serve --port 8080 --vault "{vault-name}"
+```
+
+See [API.md](API.md) for the full endpoint reference (Task JSON shape, all read/write actions).
+
 ## Contribution
 
 Fork the project, add your feature or fix and submit a pull request. You can also open an [issue](https://github.com/yakitrak/notesmd-cli/issues/new/choose) to report a bug or request a feature.
