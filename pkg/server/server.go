@@ -202,6 +202,11 @@ func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
 // For frontmatter:  { "action": "set",    "key": "...", "value": "..." }
 //
 //	{ "action": "delete", "key": "..." }
+//
+// For full content: { "action": "setContent", "content": "..." }
+// Overwrites the whole file verbatim (frontmatter included) - used for
+// plain markdown-body editing (e.g. task-front-end's linked-note editor),
+// as opposed to "set"/"delete" which only ever touch one frontmatter key.
 func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
 
@@ -210,6 +215,7 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 		NewPath string `json:"newPath"`
 		Key     string `json:"key"`
 		Value   string `json:"value"`
+		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -217,6 +223,17 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch body.Action {
+	case "setContent":
+		vaultPath, err := s.vault.Path()
+		if err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := s.note.SetContents(vaultPath, path, body.Content); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonOK(w, map[string]string{"path": path})
 	case "move":
 		if body.NewPath == "" {
 			jsonError(w, http.StatusBadRequest, "newPath is required")

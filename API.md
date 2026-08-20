@@ -66,7 +66,7 @@ List all note paths in the vault.
 
 ### `GET /api/notes/{path}`
 
-Retrieve the content and parsed frontmatter of a note. The path is relative to the vault root; `.md` extension is optional.
+Retrieve the content and parsed frontmatter of a note. The path is relative to the vault root; `.md` extension is optional. If `{path}` doesn't match a file exactly, it falls back to a basename match anywhere in the vault - so a bare note title (e.g. the target of an Obsidian `[[wikilink]]`) resolves the same way Obsidian itself would, without the caller needing to know the note's folder. `404` if nothing matches.
 
 **Response:**
 ```json
@@ -126,10 +126,16 @@ Updates all `[[wikilinks]]` that reference the old path.
 { "action": "delete", "key": "status" }
 ```
 
+**Replace the whole file content** (frontmatter included) - used for plain markdown-body editing, e.g. task-front-end's linked-note editor:
+```json
+{ "action": "setContent", "content": "# My Note\n\nBody text." }
+```
+
 **Response:**
 ```json
 { "path": "folder/note.md", "frontmatter": { "status": "In Progress" } }
 ```
+(`setContent` responds with just `{ "path": "..." }` - there's no frontmatter re-parse since the caller already has the exact content it wrote.)
 
 ---
 
