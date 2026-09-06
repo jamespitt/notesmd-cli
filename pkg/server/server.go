@@ -84,6 +84,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("GET /api/projects/{name}", s.getProject)
 	mux.HandleFunc("POST /api/projects/{name}/tasks", s.addProjectTask)
+	mux.HandleFunc("GET /api/projects/{name}/pages", s.listProjectPages)
+	mux.HandleFunc("GET /api/projects/{name}/diary", s.getProjectDiary)
+	mux.HandleFunc("POST /api/projects/{name}/diary", s.postProjectDiary)
 
 	mux.HandleFunc("GET /api/whatsapp/messages", s.getWhatsappMessages)
 	mux.HandleFunc("GET /api/whatsapp/chats", s.getWhatsappChats)

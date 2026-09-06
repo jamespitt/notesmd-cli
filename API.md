@@ -488,3 +488,62 @@ Append a new incomplete task to the project's main `.md` file.
 ```json
 { "project": "Center Parcs Trip", "title": "Book accommodation" }
 ```
+
+---
+
+### `GET /api/projects/{name}/pages`
+
+Every markdown file inside the project's directory, recursed into subfolders
+(dot-directories skipped). Includes the main `{name}.md` and `Diary.md`.
+
+**Response:**
+```json
+{
+  "pages": [
+    { "path": "Projects/Center Parcs Trip/Budget.md", "name": "Budget", "rel": "Budget.md" },
+    { "path": "Projects/Center Parcs Trip/Notes/Packing.md", "name": "Notes/Packing", "rel": "Notes/Packing.md" }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `path` | Vault-relative path - use it with `GET`/`PATCH /api/notes/{path}` to read/edit the page |
+| `name` | Display name: the relative path without the `.md` extension |
+| `rel` | Path relative to the project directory |
+
+To create a new page, `POST /api/notes/Projects/{name}/New Page.md`.
+
+---
+
+### `GET /api/projects/{name}/diary`
+
+Raw markdown of the project's `Diary.md`.
+
+**Response:**
+```json
+{ "path": "Projects/Center Parcs Trip/Diary.md", "content": "---\n...\n# ... Diary\n\n### 2026-09-06\n...", "exists": true }
+```
+`exists` is `false` (and `content` empty) until the first entry is added.
+
+---
+
+### `POST /api/projects/{name}/diary`
+
+Append a dated entry to the project's `Diary.md`.
+
+**Body:**
+```json
+{ "text": "Booked the ferry, waiting on confirmation." }
+```
+
+The entry is placed under a `### YYYY-MM-DD` heading for today. If that heading
+already exists the text is appended as a new paragraph at the end of that day's
+section; otherwise a new day section is inserted directly below the `# ... Diary`
+title, above older days. The file (with frontmatter, `tags: ProjectDiary`, and a
+title heading) is created if it doesn't exist.
+
+**Response:**
+```json
+{ "path": "Projects/Center Parcs Trip/Diary.md", "content": "...full updated file..." }
+```

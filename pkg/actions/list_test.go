@@ -43,6 +43,14 @@ func (v *vaultStub) TaskFolders() ([]string, error) {
 	return nil, nil
 }
 
+func (v *vaultStub) ProjectsFolder() (string, error) {
+	return "Projects", nil
+}
+
+func (v *vaultStub) CalendarFolder() (string, error) {
+	return "", nil
+}
+
 func TestListEntries(t *testing.T) {
 	t.Run("List vault root", func(t *testing.T) {
 		vaultDir := t.TempDir()
