@@ -18,10 +18,13 @@ pkg/actions/   → Business logic layer (use cases)
 pkg/obsidian/  → Core domain (Vault, Note, Uri interfaces & implementations)
 pkg/config/    → Configuration management (vault discovery, CLI config)
 pkg/frontmatter/ → YAML frontmatter parsing/manipulation
+pkg/tasks/     → Task parsing/editing (checkbox lines, tags, [key::value] fields, Kanban status, subtasks) - used by both `cmd/tasks.go` and `pkg/server/`
+pkg/server/    → HTTP API server (`serve` command) - task-front-end's backend, see API.md
+pkg/projects/  → Project note discovery, used by the server's /api/projects endpoints
 mocks/         → Test doubles for all interfaces
 ```
 
-Each command in `cmd/` calls a corresponding action in `pkg/actions/`. Actions accept interfaces (not concrete types) for testability.
+Each command in `cmd/` calls a corresponding action in `pkg/actions/`. Actions accept interfaces (not concrete types) for testability. `pkg/tasks/` and `pkg/server/` are the exception - they're a separate, newer layer (no `pkg/obsidian` interfaces involved) that reads/writes task files directly via the standard library.
 
 ## Key Commands
 
@@ -39,22 +42,32 @@ Each command in `cmd/` calls a corresponding action in `pkg/actions/`. Actions a
 | `frontmatter`/`fm` | View/edit YAML frontmatter |
 | `set-default` | Set default vault |
 | `print-default` | Print default vault info |
+| `tasks` | Search tasks by folder/tag/date range, print to console (`pkg/actions/tasks.go` + `pkg/obsidian/task.go` - separate, simpler parser than `pkg/tasks/`) |
+| `serve` | Start the HTTP task API server (`--port`, default 7070) that `task-front-end` talks to - see below |
 
 ## Task Format
 
 Tasks in Obsidian notes use Markdown checkbox syntax with optional metadata fields:
 
 ```markdown
-- [ ] Task description #Tag [scheduled::2026-02-18T09:30] [google_id::UUdOdWVWUkVTX2I1SkJQVg]
-- [x] Completed task #Tag
+- [ ] Task description #Tag #ToDo [due::2026-02-20] [scheduled::2026-02-18T09:30] [priority::high] [repeat::every day] [google_id::UUdOdWVWUkVTX2I1SkJQVg]
+- [x] Completed task #Tag #Done
 ```
 
 **Fields:**
 - `[ ]` / `[x]` — Incomplete / complete status
-- `#Tag` — Tag(s) e.g. `#Today`, `#Tomorrow`
-- `[scheduled::datetime]` — Scheduled datetime in ISO 8601 format (e.g. `2026-02-18T09:30`)
-- `[google_id::base64string]` — Google Calendar event ID
-- Metadata fields follow the pattern `[key::value]`
+- `#Tag` — any number of tags, all preserved (not just the first). `#ToDo`/`#InProgress`/`#Done` are reserved as Kanban status tags (`pkg/tasks.KanbanTags`) - see below.
+- List membership (`list_name` in the Task object) always comes from the file a task lives in, never from a tag.
+- Nesting/`parent_id` is inferred purely from indentation (4 spaces per level) when a file is parsed - there's no separate stored parent reference.
+- `[due::...]`, `[scheduled::...]`, `[priority::...]`, `[repeat::...]` — standard dataview-style fields.
+- `[google_id::base64string]` — Google Calendar event ID.
+- Any other `[key::value]` field round-trips untouched.
+
+Full field-by-field reference (including the HTTP Task JSON shape) is in **API.md**.
+
+## HTTP Task Server (`pkg/server/`, `pkg/tasks/`)
+
+`notesmd-cli serve` starts an HTTP API over the vault's tasks - list/create/edit/delete/move tasks, a Kanban endpoint, subtasks, project notes. It's the backend `task-front-end` (the companion SvelteKit web app) talks to; `obsidian-kanban` (the companion Obsidian plugin) implements the same conventions directly against the vault instead of over HTTP. See **API.md** for the full endpoint/action reference.
 
 ## Build & Test
 
