@@ -109,6 +109,8 @@ A client can treat a `404` here as "this server predates vault switching" and hi
 
 ## Response format
 
+Every endpoint below accepts the `?vault=<id>` parameter (or `X-Vault` header) described above; requests that omit it use the default vault.
+
 All responses are JSON. Successful responses return HTTP `200 OK` (or `201 Created` for new resources). Errors return a JSON object with an `"error"` key:
 
 ```json
@@ -233,7 +235,7 @@ Full-text search across all notes in the vault.
 
 ## Tasks API
 
-Tasks are Obsidian markdown checkbox items. The server scans the configured `default_task_folders` (or the whole vault if none are set) on every request — there is no caching.
+Tasks are Obsidian markdown checkbox items. The server scans the request's vault over its configured task folders (`task_folders` for that vault, else `default_task_folders`, else the whole vault) on every request — there is no caching.
 
 ### Task object
 
@@ -474,6 +476,64 @@ Remove a task line from its file. Accepts either `line` or `google_id`.
 
 ---
 
+## Hidden calendar events
+
+Calendar events imported into the vault can be hidden from every task view without editing the file. The list is server-side state (not stored in the vault) and is **kept per vault** — an event id only means something inside the vault it came from. `parseTasks` filters hidden events out of every task endpoint.
+
+### `GET /api/tasks/hidden`
+
+**Response:**
+```json
+{
+  "events": [
+    { "event_id": "3f7b…", "title": "Standup", "hidden_at": "2026-09-15T21:04:11+01:00" }
+  ]
+}
+```
+
+### `POST /api/tasks/hidden`
+
+Hide an event (idempotent — hiding an already-hidden event changes nothing).
+
+**Body:**
+```json
+{ "event_id": "3f7b…", "title": "Standup" }
+```
+
+**Response:** the full updated `{ "events": [...] }` list.
+
+### `DELETE /api/tasks/hidden/{event_id}`
+
+Unhide an event. **Response:** the full updated `{ "events": [...] }` list.
+
+---
+
+## Journal API
+
+### `GET /api/journal/today/diary`
+
+The bullet lines under the `#### Diary Notes` heading in today's daily note. The note's folder and filename format come from the vault's own Obsidian daily-notes settings (falling back to `YYYY-MM-DD` at the vault root).
+
+**Response:**
+```json
+{ "entries": ["Walked the dog", "Fixed the tap"] }
+```
+
+An absent daily note is not an error — `entries` is empty.
+
+### `POST /api/journal/today/diary`
+
+Append a bullet to that section, creating the daily note (with minimal frontmatter and a `#### Diary Notes` heading) and/or the section if either is missing.
+
+**Body:**
+```json
+{ "text": "Walked the dog" }
+```
+
+**Response:** the full updated `{ "entries": [...] }` list.
+
+---
+
 ## Projects API
 
 A project is a subdirectory inside the configured `default_projects_folder` (default: `"Projects"`) that contains a `.md` file sharing the directory name, with `tags: Project` in its YAML frontmatter.
@@ -613,3 +673,17 @@ title heading) is created if it doesn't exist.
 ```json
 { "path": "Projects/Center Parcs Trip/Diary.md", "content": "...full updated file..." }
 ```
+
+---
+
+## WhatsApp API
+
+Two read-only pass-throughs to a [zapmeow](https://github.com/jamespitt/zapmeow) instance, so a client can read WhatsApp history from the same origin as the task API. They're vault-independent — the `?vault=` parameter is accepted but has no effect. The target is `http://localhost:8900` instance `1` by default, overridable with the `ZAPMEOW_URL` and `ZAPMEOW_INSTANCE_ID` environment variables. An unreachable zapmeow returns `502`; otherwise zapmeow's own JSON and status code are streamed back unchanged.
+
+### `GET /api/whatsapp/messages?chat=&limit=&before=`
+
+Messages, newest first. `chat` scopes to one chat JID (omit for all chats), `limit` caps the page size, `before` is a unix-seconds cursor for the next page.
+
+### `GET /api/whatsapp/chats`
+
+One summary row per chat (group or person), newest activity first.

@@ -106,7 +106,7 @@ go test ./pkg/obsidian/...
 ## Configuration
 
 - **CLI config**: `~/.config/notesmd-cli/preferences.json` (default vault, task/projects/calendar folders, and the `vaults` array for vault switching)
-- **Obsidian config**: Read from Obsidian's native `config.json` (read-only)
+- **Obsidian config**: Read from Obsidian's native `~/.config/obsidian/obsidian.json` (read-only) - maps vault names to paths. A vault configured by absolute path needs no entry there.
 
 ## Obsidian URI Protocol
 
