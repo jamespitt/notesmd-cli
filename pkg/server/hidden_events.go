@@ -9,7 +9,7 @@ import (
 
 // GET /api/tasks/hidden
 func (s *Server) getHiddenEvents(w http.ResponseWriter, r *http.Request) {
-	events, err := tasks.LoadHiddenEvents()
+	events, err := tasks.LoadHiddenEvents(s.vaultTarget(r).StateKey)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -35,11 +35,11 @@ func (s *Server) hideEvent(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "event_id is required")
 		return
 	}
-	if err := tasks.HideEvent(body.EventID, body.Title); err != nil {
+	if err := tasks.HideEvent(s.vaultTarget(r).StateKey, body.EventID, body.Title); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	events, err := tasks.LoadHiddenEvents()
+	events, err := tasks.LoadHiddenEvents(s.vaultTarget(r).StateKey)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -54,11 +54,11 @@ func (s *Server) unhideEvent(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "event_id is required")
 		return
 	}
-	if err := tasks.UnhideEvent(eventID); err != nil {
+	if err := tasks.UnhideEvent(s.vaultTarget(r).StateKey, eventID); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	events, err := tasks.LoadHiddenEvents()
+	events, err := tasks.LoadHiddenEvents(s.vaultTarget(r).StateKey)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return

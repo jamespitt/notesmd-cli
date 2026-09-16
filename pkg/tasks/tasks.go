@@ -65,18 +65,46 @@ func ParseVault(vaultPath string) ([]Task, error) {
 	return ParseFolders(vaultPath, nil)
 }
 
-// ParseFolders walks the given folders within the vault and returns all tasks.
-// If folders is empty, the entire vault is walked.
-func ParseFolders(vaultPath string, folders []string) ([]Task, error) {
-	roots := []string{vaultPath}
-	if len(folders) > 0 {
-		roots = make([]string, len(folders))
-		for i, f := range folders {
-			roots[i] = filepath.Join(vaultPath, f)
+// splitFolderEntries resolves configured task-folder entries into absolute
+// directory roots to walk and absolute single files to parse. With no entries
+// at all, the whole vault is the one root.
+func splitFolderEntries(vaultPath string, folders []string) (roots, files []string) {
+	if len(folders) == 0 {
+		return []string{vaultPath}, nil
+	}
+	for _, f := range folders {
+		abs := filepath.Join(vaultPath, f)
+		if strings.EqualFold(filepath.Ext(f), ".md") {
+			files = append(files, abs)
+		} else {
+			roots = append(roots, abs)
 		}
 	}
+	return roots, files
+}
+
+// ParseFolders walks the given folders within the vault and returns all tasks.
+// If folders is empty, the entire vault is walked.
+//
+// An entry ending in ".md" names a single file instead of a folder, so a vault
+// whose tasks live in one big file at the root ("Action Items.md") can be
+// scanned without also walking everything else next to it.
+func ParseFolders(vaultPath string, folders []string) ([]Task, error) {
+	roots, files := splitFolderEntries(vaultPath, folders)
 
 	var tasks []Task
+	for _, absPath := range files {
+		relPath, err := filepath.Rel(vaultPath, absPath)
+		if err != nil {
+			continue
+		}
+		fileTasks, err := parseFile(absPath, relPath)
+		if err != nil {
+			continue
+		}
+		tasks = append(tasks, fileTasks...)
+	}
+
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -621,15 +649,16 @@ func SetTags(absPath string, lineNum int, tags []string) error {
 // FindListFile searches task folders within vaultPath for a file named {listName}.md.
 // Returns the absolute path of the file if found, or an error.
 func FindListFile(vaultPath string, folders []string, listName string) (string, error) {
-	roots := []string{vaultPath}
-	if len(folders) > 0 {
-		roots = make([]string, len(folders))
-		for i, f := range folders {
-			roots[i] = filepath.Join(vaultPath, f)
-		}
-	}
+	roots, files := splitFolderEntries(vaultPath, folders)
 
 	target := listName + ".md"
+	for _, candidate := range files {
+		if strings.EqualFold(filepath.Base(candidate), target) {
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate, nil
+			}
+		}
+	}
 	for _, root := range roots {
 		candidate := filepath.Join(root, target)
 		if _, err := os.Stat(candidate); err == nil {

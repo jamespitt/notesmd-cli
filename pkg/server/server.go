@@ -42,18 +42,20 @@ func zapmeowInstanceID() string {
 }
 
 // Server holds the dependencies for the HTTP handlers.
+//
+// vaults is the set of vaults this server can serve (see vaults.go); each
+// request resolves exactly one of them, so handlers reach for s.vaultOf(r)
+// rather than a single fixed vault. New/NewMulti are the constructors.
 type Server struct {
-	vault obsidian.VaultManager
-	note  obsidian.NoteManager
-}
-
-func New(vault obsidian.VaultManager, note obsidian.NoteManager) *Server {
-	return &Server{vault: vault, note: note}
+	vaults []Vault
+	note   obsidian.NoteManager
 }
 
 // Handler returns the HTTP mux with all routes registered.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /api/vaults", s.listVaults)
 
 	mux.HandleFunc("GET /api/notes", s.listNotes)
 	mux.HandleFunc("GET /api/notes/{path...}", s.getNote)
@@ -91,7 +93,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/whatsapp/messages", s.getWhatsappMessages)
 	mux.HandleFunc("GET /api/whatsapp/chats", s.getWhatsappChats)
 
-	return withCORS(mux)
+	// withVault resolves ?vault=<id> before any handler runs; withCORS stays
+	// outermost so a preflight is answered without needing a valid vault.
+	return withCORS(s.withVault(mux))
 }
 
 // withCORS adds permissive CORS headers for local network use.
@@ -99,7 +103,9 @@ func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		// X-Vault is an alternative to the ?vault= parameter, so a browser
+		// client that prefers the header isn't blocked at the preflight.
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Vault")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -128,7 +134,7 @@ func jsonError(w http.ResponseWriter, status int, msg string) {
 
 // GET /api/notes
 func (s *Server) listNotes(w http.ResponseWriter, r *http.Request) {
-	notes, err := actions.ListEntries(s.vault, actions.ListParams{})
+	notes, err := actions.ListEntries(s.vaultOf(r), actions.ListParams{})
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -143,13 +149,13 @@ func (s *Server) listNotes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
 
-	_, err := s.vault.DefaultName()
+	_, err := s.vaultOf(r).DefaultName()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	vaultPath, err := s.vault.Path()
+	vaultPath, err := s.vaultOf(r).Path()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -186,7 +192,7 @@ func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := actions.CreateNote(s.vault, &obsidian.Uri{}, actions.CreateParams{
+	err := actions.CreateNote(s.vaultOf(r), &obsidian.Uri{}, actions.CreateParams{
 		NoteName:        path,
 		Content:         body.Content,
 		ShouldOverwrite: body.Overwrite,
@@ -227,7 +233,7 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 
 	switch body.Action {
 	case "setContent":
-		vaultPath, err := s.vault.Path()
+		vaultPath, err := s.vaultOf(r).Path()
 		if err != nil {
 			jsonError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -242,7 +248,7 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, "newPath is required")
 			return
 		}
-		err := actions.MoveNote(s.vault, s.note, &obsidian.Uri{}, actions.MoveParams{
+		err := actions.MoveNote(s.vaultOf(r), s.note, &obsidian.Uri{}, actions.MoveParams{
 			CurrentNoteName: path,
 			NewNoteName:     body.NewPath,
 		})
@@ -257,7 +263,7 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, "key is required")
 			return
 		}
-		if err := s.updateFrontmatter(w, path, func(content string) (string, error) {
+		if err := s.updateFrontmatter(w, r, path, func(content string) (string, error) {
 			return frontmatter.SetKey(content, body.Key, body.Value)
 		}); err != nil {
 			return
@@ -268,7 +274,7 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, "key is required")
 			return
 		}
-		if err := s.updateFrontmatter(w, path, func(content string) (string, error) {
+		if err := s.updateFrontmatter(w, r, path, func(content string) (string, error) {
 			return frontmatter.DeleteKey(content, body.Key)
 		}); err != nil {
 			return
@@ -279,14 +285,14 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) updateFrontmatter(w http.ResponseWriter, path string, transform func(string) (string, error)) error {
-	_, err := s.vault.DefaultName()
+func (s *Server) updateFrontmatter(w http.ResponseWriter, r *http.Request, path string, transform func(string) (string, error)) error {
+	_, err := s.vaultOf(r).DefaultName()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return err
 	}
 
-	vaultPath, err := s.vault.Path()
+	vaultPath, err := s.vaultOf(r).Path()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return err
@@ -318,7 +324,7 @@ func (s *Server) updateFrontmatter(w http.ResponseWriter, path string, transform
 func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
 
-	err := actions.DeleteNote(s.vault, s.note, actions.DeleteParams{NotePath: path})
+	err := actions.DeleteNote(s.vaultOf(r), s.note, actions.DeleteParams{NotePath: path})
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -335,13 +341,13 @@ func (s *Server) searchNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := s.vault.DefaultName()
+	_, err := s.vaultOf(r).DefaultName()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	vaultPath, err := s.vault.Path()
+	vaultPath, err := s.vaultOf(r).Path()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -367,13 +373,13 @@ func (s *Server) searchNotes(w http.ResponseWriter, r *http.Request) {
 }
 
 // getVaultPath is a helper to resolve and return the vault path.
-func (s *Server) getVaultPath(w http.ResponseWriter) (string, error) {
-	_, err := s.vault.DefaultName()
+func (s *Server) getVaultPath(w http.ResponseWriter, r *http.Request) (string, error) {
+	_, err := s.vaultOf(r).DefaultName()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return "", err
 	}
-	vaultPath, err := s.vault.Path()
+	vaultPath, err := s.vaultOf(r).Path()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return "", err
@@ -382,8 +388,8 @@ func (s *Server) getVaultPath(w http.ResponseWriter) (string, error) {
 }
 
 // getTaskFolders returns the configured task folders, or nil for the whole vault.
-func (s *Server) getTaskFolders(w http.ResponseWriter) ([]string, error) {
-	folders, err := s.vault.TaskFolders()
+func (s *Server) getTaskFolders(w http.ResponseWriter, r *http.Request) ([]string, error) {
+	folders, err := s.vaultOf(r).TaskFolders()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return nil, err
@@ -392,8 +398,8 @@ func (s *Server) getTaskFolders(w http.ResponseWriter) ([]string, error) {
 }
 
 // getCalendarFolder returns the configured calendar folder.
-func (s *Server) getCalendarFolder(w http.ResponseWriter) (string, error) {
-	folder, err := s.vault.CalendarFolder()
+func (s *Server) getCalendarFolder(w http.ResponseWriter, r *http.Request) (string, error) {
+	folder, err := s.vaultOf(r).CalendarFolder()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return "", err
@@ -403,16 +409,16 @@ func (s *Server) getCalendarFolder(w http.ResponseWriter) (string, error) {
 
 // parseTasks is a shared helper that parses tasks from the configured vault/folders,
 // classifying tasks from the calendar folder as type "event".
-func (s *Server) parseTasks(w http.ResponseWriter) ([]tasks.Task, string, []string, error) {
-	vaultPath, err := s.getVaultPath(w)
+func (s *Server) parseTasks(w http.ResponseWriter, r *http.Request) ([]tasks.Task, string, []string, error) {
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return nil, "", nil, err
 	}
-	folders, err := s.getTaskFolders(w)
+	folders, err := s.getTaskFolders(w, r)
 	if err != nil {
 		return nil, "", nil, err
 	}
-	calendarFolder, err := s.getCalendarFolder(w)
+	calendarFolder, err := s.getCalendarFolder(w, r)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -429,13 +435,13 @@ func (s *Server) parseTasks(w http.ResponseWriter) ([]tasks.Task, string, []stri
 		}
 	}
 	// Remove events the user has hidden.
-	all = tasks.FilterHiddenEvents(all)
+	all = tasks.FilterHiddenEvents(s.vaultTarget(r).StateKey, all)
 	return all, vaultPath, folders, nil
 }
 
 // GET /api/tasks
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
-	all, _, _, err := s.parseTasks(w)
+	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
@@ -447,7 +453,7 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/tasks/today
 func (s *Server) listTasksToday(w http.ResponseWriter, r *http.Request) {
-	all, _, _, err := s.parseTasks(w)
+	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
@@ -460,7 +466,7 @@ func (s *Server) listTasksToday(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/tasks/tomorrow
 func (s *Server) listTasksTomorrow(w http.ResponseWriter, r *http.Request) {
-	all, _, _, err := s.parseTasks(w)
+	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
@@ -473,7 +479,7 @@ func (s *Server) listTasksTomorrow(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/tasks/overdue
 func (s *Server) listTasksOverdue(w http.ResponseWriter, r *http.Request) {
-	all, _, _, err := s.parseTasks(w)
+	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
@@ -486,7 +492,7 @@ func (s *Server) listTasksOverdue(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/tasks/timeline
 func (s *Server) listTasksTimeline(w http.ResponseWriter, r *http.Request) {
-	all, _, _, err := s.parseTasks(w)
+	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
@@ -500,7 +506,7 @@ func (s *Server) listTasksTimeline(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/tasks/kanban
 func (s *Server) listTasksKanban(w http.ResponseWriter, r *http.Request) {
-	all, _, _, err := s.parseTasks(w)
+	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
@@ -530,7 +536,7 @@ func timeToMinutes(t string) int {
 
 // GET /api/tasks/now
 func (s *Server) getTasksNow(w http.ResponseWriter, r *http.Request) {
-	all, _, _, err := s.parseTasks(w)
+	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
@@ -641,7 +647,7 @@ func (s *Server) getTasksNow(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/tasks/lists
 func (s *Server) listTaskLists(w http.ResponseWriter, r *http.Request) {
-	all, _, _, err := s.parseTasks(w)
+	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
@@ -655,7 +661,7 @@ func (s *Server) listTaskLists(w http.ResponseWriter, r *http.Request) {
 // GET /api/tasks/list/{name}
 func (s *Server) listTasksByList(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	all, _, _, err := s.parseTasks(w)
+	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
@@ -683,11 +689,11 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
-	folders, err := s.getTaskFolders(w)
+	folders, err := s.getTaskFolders(w, r)
 	if err != nil {
 		return
 	}
@@ -713,11 +719,14 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 // New kanban:   { "action": "set-status-tag", "line": 42, "kanban_status": "ToDo" | "InProgress" | "Done" | "" }
 // New tags:     { "action": "set-tags", "line": 42, "tags": ["groceries", "urgent"] }
 // New edit:     { "action": "edit", "line": 42, "title": "...", "due": "...", "scheduled": "...",
-//                 "priority": "...", "repeat": "...", "tags": [...], "new_list": "Work" }
-//                 - any field omitted from the JSON body is left unchanged; an empty string
-//                   clears that field. tags/new_list follow the same nil-vs-empty rule.
+//
+//	"priority": "...", "repeat": "...", "tags": [...], "new_list": "Work" }
+//	- any field omitted from the JSON body is left unchanged; an empty string
+//	  clears that field. tags/new_list follow the same nil-vs-empty rule.
+//
 // New subtask:  { "action": "add-subtask", "line": 42, "title": "..." }
-//                 - line is the PARENT task's line; the new task is inserted indented under it.
+//   - line is the PARENT task's line; the new task is inserted indented under it.
+//
 // google_id may be used in place of line for any action.
 func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	notePath := r.PathValue("path")
@@ -741,7 +750,7 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
@@ -829,7 +838,7 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, "new_list is required")
 			return
 		}
-		folders, err := s.getTaskFolders(w)
+		folders, err := s.getTaskFolders(w, r)
 		if err != nil {
 			return
 		}
@@ -912,7 +921,7 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 
 		// Optionally also move to a different list, same as the "move" action.
 		if body.NewList != "" {
-			folders, err := s.getTaskFolders(w)
+			folders, err := s.getTaskFolders(w, r)
 			if err != nil {
 				return
 			}
@@ -981,7 +990,7 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
@@ -1016,8 +1025,8 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // getProjectsFolder returns the configured projects folder (e.g. "Projects").
-func (s *Server) getProjectsFolder(w http.ResponseWriter) (string, error) {
-	folder, err := s.vault.ProjectsFolder()
+func (s *Server) getProjectsFolder(w http.ResponseWriter, r *http.Request) (string, error) {
+	folder, err := s.vaultOf(r).ProjectsFolder()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return "", err
@@ -1027,11 +1036,11 @@ func (s *Server) getProjectsFolder(w http.ResponseWriter) (string, error) {
 
 // GET /api/projects
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
-	projectsFolder, err := s.getProjectsFolder(w)
+	projectsFolder, err := s.getProjectsFolder(w, r)
 	if err != nil {
 		return
 	}
@@ -1051,15 +1060,15 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
-	projectsFolder, err := s.getProjectsFolder(w)
+	projectsFolder, err := s.getProjectsFolder(w, r)
 	if err != nil {
 		return
 	}
-	taskFolders, err := s.getTaskFolders(w)
+	taskFolders, err := s.getTaskFolders(w, r)
 	if err != nil {
 		return
 	}
@@ -1117,11 +1126,11 @@ func (s *Server) addProjectTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
-	projectsFolder, err := s.getProjectsFolder(w)
+	projectsFolder, err := s.getProjectsFolder(w, r)
 	if err != nil {
 		return
 	}

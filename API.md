@@ -8,13 +8,14 @@ The `serve` command starts an HTTP API server that provides read and write acces
 notesmd-cli serve
 notesmd-cli serve --port 8080
 notesmd-cli serve --vault "My Vault"
+notesmd-cli serve --vault personal --vault work   # a specific set of vaults
 ```
 
 **Flags:**
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port`, `-p` | `7070` | Port to listen on |
-| `--vault`, `-v` | (default vault) | Vault name; uses the configured default if omitted |
+| `--vault`, `-v` | (the configured vaults, else the default vault) | Vault to serve: a configured vault id, an Obsidian vault name, or an absolute path. Repeatable |
 
 The server binds to all interfaces (`0.0.0.0`) and includes permissive CORS headers, making it accessible from any origin on the local network.
 
@@ -22,7 +23,7 @@ The server binds to all interfaces (`0.0.0.0`) and includes permissive CORS head
 
 ## Configuration
 
-The server reads settings from `~/.config/notesmd-cli/config.json`:
+The server reads settings from `~/.config/notesmd-cli/preferences.json`:
 
 ```json
 {
@@ -35,9 +36,74 @@ The server reads settings from `~/.config/notesmd-cli/config.json`:
 | Key | Default | Description |
 |-----|---------|-------------|
 | `default_vault_name` | — | Which vault to use when `--vault` is not passed |
-| `default_task_folders` | (whole vault) | Folders to scan for tasks; scans entire vault if empty |
+| `default_task_folders` | (whole vault) | Folders to scan for tasks; scans entire vault if empty. An entry ending in `.md` (e.g. `"Action Items.md"`) is a single file rather than a folder |
 | `default_projects_folder` | `"Projects"` | Folder that contains project subdirectories |
 | `default_calendar_folder` | `"Journal/Calendar"` | Folder containing calendar event files; tasks from here are returned with `type: "event"` |
+
+---
+
+## Multiple vaults
+
+One server can serve several vaults (personal, work, …) and clients switch between them per request. Add a `vaults` array to `preferences.json`:
+
+```json
+{
+  "default_vault_name": "james_notes",
+  "default_task_folders": ["Tasks", "Journal"],
+  "vaults": [
+    {
+      "id": "personal",
+      "label": "Personal",
+      "path": "/home/james/src/james_notes"
+    },
+    {
+      "id": "work",
+      "label": "Work",
+      "path": "/home/james/src/tm_notes",
+      "task_folders": ["Action Items.md", "Key Action Items.md", "Projects", "Journal"],
+      "projects_folder": "Projects",
+      "calendar_folder": "Journal/Calendar"
+    }
+  ]
+}
+```
+
+| Key | Description |
+|-----|-------------|
+| `id` | What clients pass as `?vault=<id>`. Required |
+| `label` | Display name for vault pickers; defaults to `id` |
+| `path` | An Obsidian vault name or an absolute path (a path needs no Obsidian config entry). Required |
+| `task_folders` | Per-vault task folders; falls back to `default_task_folders` when omitted |
+| `projects_folder` | Per-vault projects folder; falls back to `default_projects_folder` |
+| `calendar_folder` | Per-vault calendar folder; falls back to `default_calendar_folder` |
+
+**The first entry is the default vault** — the one used by requests that name no vault, which is what keeps single-vault clients working. `notesmd-cli vaults` prints the configured list.
+
+**Selecting a vault:** add `?vault=<id>` to any request, or send an `X-Vault: <id>` header (the query parameter wins). An unknown id returns `404` rather than silently falling back to the default — a mistyped vault must not write into the wrong one.
+
+```bash
+curl localhost:7070/api/tasks/today?vault=work
+curl -H 'X-Vault: work' localhost:7070/api/tasks/today
+```
+
+Server-side state that isn't stored in the vault (the hidden-events list) is kept per vault. With no `vaults` configured, everything behaves exactly as it did before: one vault, reachable as the default and as the id `default`.
+
+### `GET /api/vaults`
+
+The vaults this server offers, and which one the request resolved to.
+
+**Response:**
+```json
+{
+  "vaults": [
+    { "id": "personal", "label": "Personal", "default": true },
+    { "id": "work", "label": "Work" }
+  ],
+  "active": "personal"
+}
+```
+
+A client can treat a `404` here as "this server predates vault switching" and hide its picker.
 
 ---
 
