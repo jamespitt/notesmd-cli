@@ -82,3 +82,14 @@ func TestPostProjectDiaryRejectsEmpty(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func jsonBody(body string) *strings.Reader {
+	return strings.NewReader(body)
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	assert.NoError(t, err)
+	return string(data)
+}

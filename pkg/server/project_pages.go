@@ -14,11 +14,11 @@ import (
 func (s *Server) listProjectPages(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
-	projectsFolder, err := s.getProjectsFolder(w)
+	projectsFolder, err := s.getProjectsFolder(w, r)
 	if err != nil {
 		return
 	}
@@ -36,11 +36,11 @@ func (s *Server) listProjectPages(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getProjectDiary(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
-	projectsFolder, err := s.getProjectsFolder(w)
+	projectsFolder, err := s.getProjectsFolder(w, r)
 	if err != nil {
 		return
 	}
@@ -75,11 +75,11 @@ func (s *Server) postProjectDiary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
-	projectsFolder, err := s.getProjectsFolder(w)
+	projectsFolder, err := s.getProjectsFolder(w, r)
 	if err != nil {
 		return
 	}

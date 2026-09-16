@@ -20,6 +20,7 @@ pkg/config/    → Configuration management (vault discovery, CLI config)
 pkg/frontmatter/ → YAML frontmatter parsing/manipulation
 pkg/tasks/     → Task parsing/editing (checkbox lines, tags, [key::value] fields, Kanban status, subtasks) - used by both `cmd/tasks.go` and `pkg/server/`
 pkg/server/    → HTTP API server (`serve` command) - task-front-end's backend, see API.md
+                 vaults.go = the multi-vault registry + per-request vault resolution
 pkg/projects/  → Project note discovery, used by the server's /api/projects endpoints
 mocks/         → Test doubles for all interfaces
 ```
@@ -43,7 +44,8 @@ Each command in `cmd/` calls a corresponding action in `pkg/actions/`. Actions a
 | `set-default` | Set default vault |
 | `print-default` | Print default vault info |
 | `tasks` | Search tasks by folder/tag/date range, print to console (`pkg/actions/tasks.go` + `pkg/obsidian/task.go` - separate, simpler parser than `pkg/tasks/`) |
-| `serve` | Start the HTTP task API server (`--port`, default 7070) that `task-front-end` talks to - see below |
+| `serve` | Start the HTTP task API server (`--port`, default 7070) that `task-front-end` talks to - see below. `--vault` is repeatable; with no flag it serves every vault in the config |
+| `vaults` | List the switchable vaults from the config (`vaults` array), marking the default |
 
 ## Task Format
 
@@ -68,6 +70,15 @@ Full field-by-field reference (including the HTTP Task JSON shape) is in **API.m
 ## HTTP Task Server (`pkg/server/`, `pkg/tasks/`)
 
 `notesmd-cli serve` starts an HTTP API over the vault's tasks - list/create/edit/delete/move tasks, a Kanban endpoint, subtasks, project notes. It's the backend `task-front-end` (the companion SvelteKit web app) talks to; `obsidian-kanban` (the companion Obsidian plugin) implements the same conventions directly against the vault instead of over HTTP. See **API.md** for the full endpoint/action reference.
+
+### Multiple vaults
+
+One server can serve several vaults (e.g. personal + work), declared as a `vaults` array in `preferences.json`; clients pick one per request with `?vault=<id>` (or an `X-Vault` header) and discover the list from `GET /api/vaults`. The first configured vault is the default, so a request that names none behaves exactly as a single-vault server always did.
+
+- `pkg/server/vaults.go` holds the registry (`server.Vault`), the `withVault` middleware that resolves the id once per request into the request context, and `/api/vaults`. Handlers therefore never touch a fixed vault - they call `s.vaultOf(r)` / `s.vaultTarget(r)`, and the folder helpers (`getVaultPath`, `getTaskFolders`, `getProjectsFolder`, `getCalendarFolder`, `parseTasks`) all take the request.
+- `pkg/obsidian.ConfiguredVault` adapts one config entry to `VaultManager`, with per-vault task/projects/calendar folders (work and personal vaults rarely agree on where tasks live). An empty folder field falls back to the global `default_*` preference.
+- State that lives outside the vault (hidden calendar events) is namespaced by vault: the default vault keeps `hidden_events.json`, others get `hidden_events-<id>.json`.
+- An unknown vault id is a `404`, never a fallback to the default - a mistyped id must not write into the wrong vault.
 
 ## Build & Test
 
@@ -94,8 +105,8 @@ go test ./pkg/obsidian/...
 
 ## Configuration
 
-- **CLI config**: `~/.config/notesmd-cli/config.json` (stores default vault)
-- **Obsidian config**: Read from Obsidian's native `config.json` (read-only)
+- **CLI config**: `~/.config/notesmd-cli/preferences.json` (default vault, task/projects/calendar folders, and the `vaults` array for vault switching)
+- **Obsidian config**: Read from Obsidian's native `~/.config/obsidian/obsidian.json` (read-only) - maps vault names to paths. A vault configured by absolute path needs no entry there.
 
 ## Obsidian URI Protocol
 

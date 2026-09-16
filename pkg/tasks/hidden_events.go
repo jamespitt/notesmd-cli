@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Yakitrak/notesmd-cli/pkg/config"
@@ -16,17 +17,40 @@ type HiddenEvent struct {
 	HiddenAt string `json:"hidden_at"`
 }
 
-func hiddenEventsPath() (string, error) {
+// hiddenEventsPath returns the state file for one vault. vaultKey namespaces
+// it: empty (the default vault) keeps the original filename, any other key
+// gets its own file - event ids only mean anything within the vault they came
+// from, so hiding an event in one vault must not hide anything in another.
+// The key is sanitised into a filename since it comes from config.
+func hiddenEventsPath(vaultKey string) (string, error) {
 	dir, _, err := config.CliPath()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "hidden_events.json"), nil
+	name := "hidden_events.json"
+	if vaultKey != "" {
+		name = "hidden_events-" + sanitizeKey(vaultKey) + ".json"
+	}
+	return filepath.Join(dir, name), nil
 }
 
-// LoadHiddenEvents reads the persisted hidden events list.
-func LoadHiddenEvents() ([]HiddenEvent, error) {
-	path, err := hiddenEventsPath()
+// sanitizeKey reduces a vault id to characters that are safe in a filename.
+func sanitizeKey(key string) string {
+	var b strings.Builder
+	for _, c := range key {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_':
+			b.WriteRune(c)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
+
+// LoadHiddenEvents reads the persisted hidden events list for a vault.
+func LoadHiddenEvents(vaultKey string) ([]HiddenEvent, error) {
+	path, err := hiddenEventsPath(vaultKey)
 	if err != nil {
 		return nil, err
 	}
@@ -44,8 +68,8 @@ func LoadHiddenEvents() ([]HiddenEvent, error) {
 	return events, nil
 }
 
-func saveHiddenEvents(events []HiddenEvent) error {
-	path, err := hiddenEventsPath()
+func saveHiddenEvents(vaultKey string, events []HiddenEvent) error {
+	path, err := hiddenEventsPath(vaultKey)
 	if err != nil {
 		return err
 	}
@@ -64,8 +88,8 @@ func saveHiddenEvents(events []HiddenEvent) error {
 }
 
 // HideEvent adds an event to the hidden list (idempotent).
-func HideEvent(eventID, title string) error {
-	events, err := LoadHiddenEvents()
+func HideEvent(vaultKey, eventID, title string) error {
+	events, err := LoadHiddenEvents(vaultKey)
 	if err != nil {
 		return err
 	}
@@ -79,12 +103,12 @@ func HideEvent(eventID, title string) error {
 		Title:    title,
 		HiddenAt: time.Now().Format(time.RFC3339),
 	})
-	return saveHiddenEvents(events)
+	return saveHiddenEvents(vaultKey, events)
 }
 
 // UnhideEvent removes an event from the hidden list.
-func UnhideEvent(eventID string) error {
-	events, err := LoadHiddenEvents()
+func UnhideEvent(vaultKey, eventID string) error {
+	events, err := LoadHiddenEvents(vaultKey)
 	if err != nil {
 		return err
 	}
@@ -94,13 +118,13 @@ func UnhideEvent(eventID string) error {
 			filtered = append(filtered, e)
 		}
 	}
-	return saveHiddenEvents(filtered)
+	return saveHiddenEvents(vaultKey, filtered)
 }
 
 // FilterHiddenEvents removes hidden calendar events from the list.
 // Fails open: if the hidden list can't be read, the original list is returned unchanged.
-func FilterHiddenEvents(taskList []Task) []Task {
-	hidden, err := LoadHiddenEvents()
+func FilterHiddenEvents(vaultKey string, taskList []Task) []Task {
+	hidden, err := LoadHiddenEvents(vaultKey)
 	if err != nil || len(hidden) == 0 {
 		return taskList
 	}

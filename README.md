@@ -383,9 +383,28 @@ notesmd-cli serve
 
 # Choose a port and/or vault
 notesmd-cli serve --port 8080 --vault "{vault-name}"
+
+# Serve several vaults at once (repeatable flag, or configure them - below)
+notesmd-cli serve --vault personal --vault work
 ```
 
-See [API.md](API.md) for the full endpoint reference (Task JSON shape, all read/write actions).
+### Switching between vaults
+
+One server can serve more than one vault - a personal and a work vault, say - and clients switch between them per request. Declare them under `vaults` in `~/.config/notesmd-cli/preferences.json`, each with its own id, label and folder layout:
+
+```json
+{
+  "vaults": [
+    { "id": "personal", "label": "Personal", "path": "/path/to/personal-vault" },
+    { "id": "work", "label": "Work", "path": "/path/to/work-vault",
+      "task_folders": ["Action Items.md", "Projects"] }
+  ]
+}
+```
+
+`notesmd-cli vaults` lists them; the first is the default. Clients then send `?vault=work` (or an `X-Vault: work` header) and can read the available vaults from `GET /api/vaults`. Requests that name no vault use the default, so nothing changes for a single-vault setup.
+
+See [API.md](API.md) for the full endpoint reference (Task JSON shape, all read/write actions, multi-vault configuration).
 
 ## Contribution
 

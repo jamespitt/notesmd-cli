@@ -8,13 +8,14 @@ The `serve` command starts an HTTP API server that provides read and write acces
 notesmd-cli serve
 notesmd-cli serve --port 8080
 notesmd-cli serve --vault "My Vault"
+notesmd-cli serve --vault personal --vault work   # a specific set of vaults
 ```
 
 **Flags:**
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port`, `-p` | `7070` | Port to listen on |
-| `--vault`, `-v` | (default vault) | Vault name; uses the configured default if omitted |
+| `--vault`, `-v` | (the configured vaults, else the default vault) | Vault to serve: a configured vault id, an Obsidian vault name, or an absolute path. Repeatable |
 
 The server binds to all interfaces (`0.0.0.0`) and includes permissive CORS headers, making it accessible from any origin on the local network.
 
@@ -22,7 +23,7 @@ The server binds to all interfaces (`0.0.0.0`) and includes permissive CORS head
 
 ## Configuration
 
-The server reads settings from `~/.config/notesmd-cli/config.json`:
+The server reads settings from `~/.config/notesmd-cli/preferences.json`:
 
 ```json
 {
@@ -35,13 +36,80 @@ The server reads settings from `~/.config/notesmd-cli/config.json`:
 | Key | Default | Description |
 |-----|---------|-------------|
 | `default_vault_name` | — | Which vault to use when `--vault` is not passed |
-| `default_task_folders` | (whole vault) | Folders to scan for tasks; scans entire vault if empty |
+| `default_task_folders` | (whole vault) | Folders to scan for tasks; scans entire vault if empty. An entry ending in `.md` (e.g. `"Action Items.md"`) is a single file rather than a folder |
 | `default_projects_folder` | `"Projects"` | Folder that contains project subdirectories |
 | `default_calendar_folder` | `"Journal/Calendar"` | Folder containing calendar event files; tasks from here are returned with `type: "event"` |
 
 ---
 
+## Multiple vaults
+
+One server can serve several vaults (personal, work, …) and clients switch between them per request. Add a `vaults` array to `preferences.json`:
+
+```json
+{
+  "default_vault_name": "james_notes",
+  "default_task_folders": ["Tasks", "Journal"],
+  "vaults": [
+    {
+      "id": "personal",
+      "label": "Personal",
+      "path": "/home/james/src/james_notes"
+    },
+    {
+      "id": "work",
+      "label": "Work",
+      "path": "/home/james/src/tm_notes",
+      "task_folders": ["Action Items.md", "Key Action Items.md", "Projects", "Journal"],
+      "projects_folder": "Projects",
+      "calendar_folder": "Journal/Calendar"
+    }
+  ]
+}
+```
+
+| Key | Description |
+|-----|-------------|
+| `id` | What clients pass as `?vault=<id>`. Required |
+| `label` | Display name for vault pickers; defaults to `id` |
+| `path` | An Obsidian vault name or an absolute path (a path needs no Obsidian config entry). Required |
+| `task_folders` | Per-vault task folders; falls back to `default_task_folders` when omitted |
+| `projects_folder` | Per-vault projects folder; falls back to `default_projects_folder` |
+| `calendar_folder` | Per-vault calendar folder; falls back to `default_calendar_folder` |
+
+**The first entry is the default vault** — the one used by requests that name no vault, which is what keeps single-vault clients working. `notesmd-cli vaults` prints the configured list.
+
+**Selecting a vault:** add `?vault=<id>` to any request, or send an `X-Vault: <id>` header (the query parameter wins). An unknown id returns `404` rather than silently falling back to the default — a mistyped vault must not write into the wrong one.
+
+```bash
+curl localhost:7070/api/tasks/today?vault=work
+curl -H 'X-Vault: work' localhost:7070/api/tasks/today
+```
+
+Server-side state that isn't stored in the vault (the hidden-events list) is kept per vault. With no `vaults` configured, everything behaves exactly as it did before: one vault, reachable as the default and as the id `default`.
+
+### `GET /api/vaults`
+
+The vaults this server offers, and which one the request resolved to.
+
+**Response:**
+```json
+{
+  "vaults": [
+    { "id": "personal", "label": "Personal", "default": true },
+    { "id": "work", "label": "Work" }
+  ],
+  "active": "personal"
+}
+```
+
+A client can treat a `404` here as "this server predates vault switching" and hide its picker.
+
+---
+
 ## Response format
+
+Every endpoint below accepts the `?vault=<id>` parameter (or `X-Vault` header) described above; requests that omit it use the default vault.
 
 All responses are JSON. Successful responses return HTTP `200 OK` (or `201 Created` for new resources). Errors return a JSON object with an `"error"` key:
 
@@ -167,7 +235,7 @@ Full-text search across all notes in the vault.
 
 ## Tasks API
 
-Tasks are Obsidian markdown checkbox items. The server scans the configured `default_task_folders` (or the whole vault if none are set) on every request — there is no caching.
+Tasks are Obsidian markdown checkbox items. The server scans the request's vault over its configured task folders (`task_folders` for that vault, else `default_task_folders`, else the whole vault) on every request — there is no caching.
 
 ### Task object
 
@@ -408,6 +476,64 @@ Remove a task line from its file. Accepts either `line` or `google_id`.
 
 ---
 
+## Hidden calendar events
+
+Calendar events imported into the vault can be hidden from every task view without editing the file. The list is server-side state (not stored in the vault) and is **kept per vault** — an event id only means something inside the vault it came from. `parseTasks` filters hidden events out of every task endpoint.
+
+### `GET /api/tasks/hidden`
+
+**Response:**
+```json
+{
+  "events": [
+    { "event_id": "3f7b…", "title": "Standup", "hidden_at": "2026-09-15T21:04:11+01:00" }
+  ]
+}
+```
+
+### `POST /api/tasks/hidden`
+
+Hide an event (idempotent — hiding an already-hidden event changes nothing).
+
+**Body:**
+```json
+{ "event_id": "3f7b…", "title": "Standup" }
+```
+
+**Response:** the full updated `{ "events": [...] }` list.
+
+### `DELETE /api/tasks/hidden/{event_id}`
+
+Unhide an event. **Response:** the full updated `{ "events": [...] }` list.
+
+---
+
+## Journal API
+
+### `GET /api/journal/today/diary`
+
+The bullet lines under the `#### Diary Notes` heading in today's daily note. The note's folder and filename format come from the vault's own Obsidian daily-notes settings (falling back to `YYYY-MM-DD` at the vault root).
+
+**Response:**
+```json
+{ "entries": ["Walked the dog", "Fixed the tap"] }
+```
+
+An absent daily note is not an error — `entries` is empty.
+
+### `POST /api/journal/today/diary`
+
+Append a bullet to that section, creating the daily note (with minimal frontmatter and a `#### Diary Notes` heading) and/or the section if either is missing.
+
+**Body:**
+```json
+{ "text": "Walked the dog" }
+```
+
+**Response:** the full updated `{ "entries": [...] }` list.
+
+---
+
 ## Projects API
 
 A project is a subdirectory inside the configured `default_projects_folder` (default: `"Projects"`) that contains a `.md` file sharing the directory name, with `tags: Project` in its YAML frontmatter.
@@ -547,3 +673,17 @@ title heading) is created if it doesn't exist.
 ```json
 { "path": "Projects/Center Parcs Trip/Diary.md", "content": "...full updated file..." }
 ```
+
+---
+
+## WhatsApp API
+
+Two read-only pass-throughs to a [zapmeow](https://github.com/jamespitt/zapmeow) instance, so a client can read WhatsApp history from the same origin as the task API. They're vault-independent — the `?vault=` parameter is accepted but has no effect. The target is `http://localhost:8900` instance `1` by default, overridable with the `ZAPMEOW_URL` and `ZAPMEOW_INSTANCE_ID` environment variables. An unreachable zapmeow returns `502`; otherwise zapmeow's own JSON and status code are streamed back unchanged.
+
+### `GET /api/whatsapp/messages?chat=&limit=&before=`
+
+Messages, newest first. `chat` scopes to one chat JID (omit for all chats), `limit` caps the page size, `before` is a unix-seconds cursor for the next page.
+
+### `GET /api/whatsapp/chats`
+
+One summary row per chat (group or person), newest activity first.

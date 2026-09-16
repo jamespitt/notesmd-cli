@@ -68,7 +68,7 @@ func parseDiaryEntries(path string) ([]string, error) {
 
 // GET /api/journal/today/diary
 func (s *Server) getTodayDiary(w http.ResponseWriter, r *http.Request) {
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
@@ -98,7 +98,7 @@ func (s *Server) postTodayDiary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vaultPath, err := s.getVaultPath(w)
+	vaultPath, err := s.getVaultPath(w, r)
 	if err != nil {
 		return
 	}
