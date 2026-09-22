@@ -285,7 +285,14 @@ var KanbanTags = []string{"ToDo", "InProgress", "Done"}
 // or "Done"), or "" if it carries none of the KanbanTags and so isn't on the
 // board.
 func KanbanStatus(t Task) string {
-	for _, kt := range KanbanTags {
+	return KanbanStatusIn(t, KanbanTags)
+}
+
+// KanbanStatusIn is KanbanStatus for a caller-supplied column set (a client
+// board with its own custom columns): the first of columns the task carries
+// as a tag, or "" if it carries none.
+func KanbanStatusIn(t Task, columns []string) string {
+	for _, kt := range columns {
 		if containsTagCI(t.Tags, kt) {
 			return kt
 		}
@@ -293,13 +300,26 @@ func KanbanStatus(t Task) string {
 	return ""
 }
 
+// ValidColumnTag reports whether s can be used as a Kanban column tag - i.e.
+// it is non-empty and made only of the characters tagRe recognizes, so it
+// round-trips through a task line as a single #tag.
+func ValidColumnTag(s string) bool {
+	m := tagRe.FindString("#" + s)
+	return s != "" && m == "#"+s
+}
+
 // FilterKanban returns tasks that carry one of the KanbanTags, regardless of
 // completion status (a "Done" card is typically also completed, but the
 // board is driven by the tag, not the checkbox).
 func FilterKanban(tasks []Task) []Task {
+	return FilterKanbanColumns(tasks, KanbanTags)
+}
+
+// FilterKanbanColumns is FilterKanban for a caller-supplied column set.
+func FilterKanbanColumns(tasks []Task, columns []string) []Task {
 	var result []Task
 	for _, t := range tasks {
-		if KanbanStatus(t) != "" {
+		if KanbanStatusIn(t, columns) != "" {
 			result = append(result, t)
 		}
 	}
@@ -578,6 +598,14 @@ func SetScheduled(absPath string, lineNum int, scheduled string) error {
 // board (remove any KanbanTags tag without adding a new one). status must be
 // one of KanbanTags or "".
 func SetStatusTag(absPath string, lineNum int, status string) error {
+	return SetStatusTagIn(absPath, lineNum, status, KanbanTags)
+}
+
+// SetStatusTagIn is SetStatusTag for a caller-supplied column set: it strips
+// whichever of columns the task currently carries (rather than just
+// KanbanTags) before adding status. Callers are responsible for validating
+// status and columns (see ValidColumnTag).
+func SetStatusTagIn(absPath string, lineNum int, status string, columns []string) error {
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -598,8 +626,8 @@ func SetStatusTag(absPath string, lineNum int, status string) error {
 	raw := m[3]
 
 	// Remove any existing Kanban status tag; every other tag is untouched.
-	for _, kt := range KanbanTags {
-		raw = regexp.MustCompile(`(?i)#`+kt+`\b`).ReplaceAllString(raw, "")
+	for _, kt := range columns {
+		raw = regexp.MustCompile(`(?i)#`+regexp.QuoteMeta(kt)+`\b`).ReplaceAllString(raw, "")
 	}
 	raw = strings.TrimSpace(raw)
 

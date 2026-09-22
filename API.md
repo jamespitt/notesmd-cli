@@ -326,6 +326,8 @@ Results include both `type: "task"` and `type: "event"` items.
 
 ### `GET /api/tasks/kanban`
 
+Optional `?columns=Backlog,Review,Done` (comma-separated, `#` optional) swaps in a custom column set for this request, the way a per-board column list does in the `obsidian-kanban` plugin; omitted means the default three. Each column must be a valid single tag (letters, digits, `_`, `/`), otherwise `400`.
+
 Tasks carrying one of the Kanban status tags (`ToDo`, `InProgress`, `Done` - case-insensitive), sorted column-major (all `ToDo`, then all `InProgress`, then all `Done`). Unlike every other view, completed tasks are **not** excluded - a `Done` card is normally also completed, since moving a card onto Done via `PATCH .../set-status-tag` checks it off too.
 
 ```json
@@ -431,6 +433,8 @@ Removes the task line - along with any of its existing children (contiguous line
 { "action": "set-status-tag", "line": 14, "kanban_status": "" }
 ```
 Replaces any existing `ToDo`/`InProgress`/`Done` tag with the given one (every other tag is untouched); `kanban_status` must be one of those three or `""` to take the task off the board. Also keeps completion in sync: setting `"Done"` checks the task off, anything else (including `""`) un-checks it.
+
+An optional `"kanban_columns": ["Backlog", "Review", "Done"]` uses a custom column set instead: `kanban_status` must then be one of those (or `""`), and *every* one of them is stripped from the line before the new tag is added. Completion sync is unchanged: only a column named `Done` (any case) checks the task off, and moving onto anything else un-checks it.
 
 **Set tags:**
 ```json

@@ -504,13 +504,42 @@ func (s *Server) listTasksTimeline(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"tasks": result})
 }
 
-// GET /api/tasks/kanban
+// parseKanbanColumns splits and validates a comma-separated column list (a
+// "columns" query parameter). An empty input means the default KanbanTags.
+func parseKanbanColumns(raw []string) ([]string, error) {
+	var columns []string
+	for _, c := range raw {
+		for _, part := range strings.Split(c, ",") {
+			part = strings.TrimPrefix(strings.TrimSpace(part), "#")
+			if part == "" {
+				continue
+			}
+			if !tasks.ValidColumnTag(part) {
+				return nil, fmt.Errorf("invalid kanban column %q", part)
+			}
+			columns = append(columns, part)
+		}
+	}
+	if len(columns) == 0 {
+		return tasks.KanbanTags, nil
+	}
+	return columns, nil
+}
+
+// GET /api/tasks/kanban[?columns=Backlog,Review,Done]
+// columns is an optional comma-separated custom column set; omitted means
+// the default ToDo/InProgress/Done.
 func (s *Server) listTasksKanban(w http.ResponseWriter, r *http.Request) {
+	columns, err := parseKanbanColumns(r.URL.Query()["columns"])
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
-	result := tasks.FilterKanban(all)
+	result := tasks.FilterKanbanColumns(all, columns)
 	if result == nil {
 		result = []tasks.Task{}
 	}
@@ -717,6 +746,10 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 // New schedule: { "action": "schedule", "line": 42, "scheduled": "2026-03-11T14:00" }
 // New move:     { "action": "move", "line": 42, "new_list": "Work" }
 // New kanban:   { "action": "set-status-tag", "line": 42, "kanban_status": "ToDo" | "InProgress" | "Done" | "" }
+//   - optional "kanban_columns": [...] swaps in a custom column set: kanban_status
+//     must then be one of those (or ""), and every one of them is stripped from the line.
+//     Only a column named "Done" (any case) checks the task off.
+//
 // New tags:     { "action": "set-tags", "line": 42, "tags": ["groceries", "urgent"] }
 // New edit:     { "action": "edit", "line": 42, "title": "...", "due": "...", "scheduled": "...",
 //
@@ -732,18 +765,19 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	notePath := r.PathValue("path")
 
 	var body struct {
-		Action       string   `json:"action"`
-		Line         int      `json:"line"`
-		GoogleID     string   `json:"google_id"`
-		Status       string   `json:"status"`
-		Scheduled    *string  `json:"scheduled"`
-		Due          *string  `json:"due"`
-		NewList      string   `json:"new_list"`
-		Title        *string  `json:"title"`
-		Priority     *string  `json:"priority"`
-		Repeat       *string  `json:"repeat"`
-		KanbanStatus string   `json:"kanban_status"`
-		Tags         []string `json:"tags"`
+		Action        string   `json:"action"`
+		Line          int      `json:"line"`
+		GoogleID      string   `json:"google_id"`
+		Status        string   `json:"status"`
+		Scheduled     *string  `json:"scheduled"`
+		Due           *string  `json:"due"`
+		NewList       string   `json:"new_list"`
+		Title         *string  `json:"title"`
+		Priority      *string  `json:"priority"`
+		Repeat        *string  `json:"repeat"`
+		KanbanStatus  string   `json:"kanban_status"`
+		KanbanColumns []string `json:"kanban_columns"`
+		Tags          []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -858,24 +892,29 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, "line must be >= 1")
 			return
 		}
+		columns, err := parseKanbanColumns(body.KanbanColumns)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		valid := body.KanbanStatus == ""
-		for _, kt := range tasks.KanbanTags {
+		for _, kt := range columns {
 			if body.KanbanStatus == kt {
 				valid = true
 			}
 		}
 		if !valid {
-			jsonError(w, http.StatusBadRequest, fmt.Sprintf("kanban_status must be one of %v or empty", tasks.KanbanTags))
+			jsonError(w, http.StatusBadRequest, fmt.Sprintf("kanban_status must be one of %v or empty", columns))
 			return
 		}
-		if err := tasks.SetStatusTag(absPath, body.Line, body.KanbanStatus); err != nil {
+		if err := tasks.SetStatusTagIn(absPath, body.Line, body.KanbanStatus, columns); err != nil {
 			jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		// Keep completion in sync with the Done column: moving a card onto
 		// Done also checks it off; moving it anywhere else un-checks it.
 		newTaskStatus := tasks.StatusTodo
-		if body.KanbanStatus == "Done" {
+		if strings.EqualFold(body.KanbanStatus, "Done") {
 			newTaskStatus = tasks.StatusCompleted
 		}
 		if err := tasks.ToggleStatus(absPath, body.Line, newTaskStatus); err != nil {

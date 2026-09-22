@@ -97,3 +97,39 @@ func TestSetStatusTag(t *testing.T) {
 		assert.Contains(t, string(content), "- [x] Buy milk #InProgress")
 	})
 }
+
+func TestKanbanStatusInAndFilterKanbanColumns(t *testing.T) {
+	columns := []string{"Backlog", "Review", "Done"}
+
+	assert.Equal(t, "Review", KanbanStatusIn(Task{Tags: []string{"urgent", "review"}}, columns))
+	assert.Equal(t, "", KanbanStatusIn(Task{Tags: []string{"ToDo"}}, columns))
+
+	tasks := []Task{
+		{Title: "custom", Tags: []string{"Backlog"}},
+		{Title: "default only", Tags: []string{"ToDo"}},
+	}
+	result := FilterKanbanColumns(tasks, columns)
+	assert.Len(t, result, 1)
+	assert.Equal(t, "custom", result[0].Title)
+}
+
+func TestValidColumnTag(t *testing.T) {
+	assert.True(t, ValidColumnTag("Backlog"))
+	assert.True(t, ValidColumnTag("code_review"))
+	assert.False(t, ValidColumnTag(""))
+	assert.False(t, ValidColumnTag("in review"))
+	assert.False(t, ValidColumnTag("a,b"))
+}
+
+func TestSetStatusTagIn(t *testing.T) {
+	dir := t.TempDir()
+	absPath := filepath.Join(dir, "Work.md")
+	assert.NoError(t, os.WriteFile(absPath, []byte("# Work\n\n- [ ] Buy milk #Backlog #urgent\n"), 0644))
+
+	assert.NoError(t, SetStatusTagIn(absPath, 3, "Review", []string{"Backlog", "Review", "Done"}))
+
+	content, err := os.ReadFile(absPath)
+	assert.NoError(t, err)
+	assert.Contains(t, string(content), "#urgent #Review")
+	assert.NotContains(t, string(content), "#Backlog")
+}
