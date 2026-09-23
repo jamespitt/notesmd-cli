@@ -61,7 +61,7 @@ func (m *Note) Delete(path string) error {
 }
 
 func (m *Note) GetContents(vaultPath string, noteName string) (string, error) {
-	note := AddMdSuffix(noteName)
+	mdName := AddMdSuffix(noteName)
 
 	var notePath string
 	err := filepath.WalkDir(vaultPath, func(path string, d os.DirEntry, err error) error {
@@ -72,17 +72,26 @@ func (m *Note) GetContents(vaultPath string, noteName string) (string, error) {
 			return nil // Skip directories
 		}
 
-		// Check for full path match first
-		relPath, err := filepath.Rel(vaultPath, path)
-		if err == nil && relPath == note {
+		relPath, relErr := filepath.Rel(vaultPath, path)
+
+		// Exact match against the path as given - covers a name that
+		// already carries its own extension (e.g. "Board.kanban"), not
+		// just a ".md" note. Blindly appending ".md" here (as before) made
+		// any non-".md" file unreachable by this lookup even though
+		// GetNotesList lists it.
+		if (relErr == nil && relPath == noteName) || filepath.Base(path) == noteName {
 			notePath = path
 			return filepath.SkipDir
 		}
 
-		// Fall back to basename match for backward compatibility
-		if filepath.Base(path) == note {
-			notePath = path
-			return filepath.SkipDir
+		// A bare title with no extension - fall back to the .md-suffixed
+		// form, the common case for a [[wikilink]] target. Skipped when
+		// noteName already ends in .md, since that's the same check above.
+		if noteName != mdName {
+			if (relErr == nil && relPath == mdName) || filepath.Base(path) == mdName {
+				notePath = path
+				return filepath.SkipDir
+			}
 		}
 		return nil
 	})

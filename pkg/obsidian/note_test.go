@@ -123,6 +123,36 @@ func TestNote_GetContents(t *testing.T) {
 		assert.Equal(t, fileContents, content2, "Expected contents to match the file contents")
 	})
 
+	t.Run("Get contents of a file with a non-.md extension", func(t *testing.T) {
+		// Arrange - regression test: GetContents used to unconditionally
+		// append ".md" to the requested name, so a file like a `.kanban`
+		// board (obsidian-kanban's board-definition format) was listed by
+		// GetNotesList but could never actually be fetched by this method.
+		tempDir := t.TempDir()
+		vaultPath := "vault-folder"
+		noteName := "Kanban.kanban"
+		notePath := filepath.Join(tempDir, vaultPath, noteName)
+		fileContents := "filter: \ncolumns: ToDo, InProgress, Done\n"
+
+		err := os.MkdirAll(filepath.Join(tempDir, vaultPath), 0755)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = os.WriteFile(notePath, []byte(fileContents), 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		noteManager := obsidian.Note{}
+		content, err := noteManager.GetContents(filepath.Join(tempDir, vaultPath), noteName)
+
+		// Assert
+		assert.Equal(t, nil, err, "Expected no error while retrieving a non-.md file's contents")
+		assert.Equal(t, fileContents, content, "Expected contents to match the file contents")
+	})
+
 	t.Run("Get contents of non-existent note", func(t *testing.T) {
 		// Arrange
 		noteManager := obsidian.Note{}
