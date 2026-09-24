@@ -18,7 +18,8 @@ pkg/actions/   → Business logic layer (use cases)
 pkg/obsidian/  → Core domain (Vault, Note, Uri interfaces & implementations)
 pkg/config/    → Configuration management (vault discovery, CLI config)
 pkg/frontmatter/ → YAML frontmatter parsing/manipulation
-pkg/tasks/     → Task parsing/editing (checkbox lines, tags, [key::value] fields, Kanban status, subtasks) - used by both `cmd/tasks.go` and `pkg/server/`
+pkg/tasks/     → Task parsing/editing (checkbox lines, tags, [key::value] fields, Kanban status, subtasks) - used by `cmd/tasks.go`, `cmd/add_task.go` and `pkg/server/`
+pkg/vaultlock/ → The shared flock every task-file writer takes (see "Writing task files" below)
 pkg/server/    → HTTP API server (`serve` command) - task-front-end's backend, see API.md
                  vaults.go = the multi-vault registry + per-request vault resolution
 pkg/projects/  → Project note discovery, used by the server's /api/projects endpoints
@@ -44,6 +45,7 @@ Each command in `cmd/` calls a corresponding action in `pkg/actions/`. Actions a
 | `set-default` | Set default vault |
 | `print-default` | Print default vault info |
 | `tasks` | Search tasks by folder/tag/date range, print to console (`pkg/actions/tasks.go` + `pkg/obsidian/task.go` - separate, simpler parser than `pkg/tasks/`) |
+| `add-task` | Append a task to a list file under the vault lock; idempotent by title (`cmd/add_task.go` → `tasks.AddTask`). Use it instead of editing synced list files directly |
 | `serve` | Start the HTTP task API server (`--port`, default 7070) that `task-front-end` talks to - see below. `--vault` is repeatable; with no flag it serves every vault in the config |
 | `vaults` | List the switchable vaults from the config (`vaults` array), marking the default |
 
@@ -57,7 +59,7 @@ Tasks in Obsidian notes use Markdown checkbox syntax with optional metadata fiel
 ```
 
 **Fields:**
-- `[ ]` / `[x]` — Incomplete / complete status
+- `[ ]` / `[x]` / `[-]` — Incomplete / complete / cancelled. A cancelled task is kept in the file for the sync (`tasks/src/sync.py`) to purge after 24h. An open task tagged `#Delete` is cancelled too. `pkg/tasks.parseLine` returns nothing for either, so they are hidden from every task endpoint; `taskLineRe` still matches `[-]` so subtask block boundaries stay correct. (The separate `tasks` CLI parser in `pkg/obsidian/task.go` only matches `[ ]`/`[x]`, so it hides `[-]` too but still lists open `#Delete` tasks.)
 - `#Tag` — any number of tags, all preserved (not just the first). `#ToDo`/`#InProgress`/`#Done` are reserved as Kanban status tags (`pkg/tasks.KanbanTags`) - see below.
 - List membership (`list_name` in the Task object) always comes from the file a task lives in, never from a tag.
 - Nesting/`parent_id` is inferred purely from indentation (4 spaces per level) when a file is parsed - there's no separate stored parent reference.
@@ -66,6 +68,15 @@ Tasks in Obsidian notes use Markdown checkbox syntax with optional metadata fiel
 - Any other `[key::value]` field round-trips untouched.
 
 Full field-by-field reference (including the HTTP Task JSON shape) is in **API.md**.
+
+## Writing task files
+
+Task files are also rewritten by the Python sync and a git auto-commit job, so every mutator in `pkg/tasks/` follows two rules:
+
+- **Take the vault lock.** `vaultlock.Lock()` (an exclusive `flock` on `$TASK_VAULT_LOCK`, default `~/.local/state/task_system/vault.lock`, the same file as `tasks/src/vault_lock.py` and `tasks/git.sh`) is acquired at the top of each leaf mutator and released with `defer`. It waits up to 3 minutes and isn't reentrant, so **don't call one locked mutator from another** (`SetStatusTag` is a lock-free wrapper around `SetStatusTagIn` for this reason). A new mutator needs its own `Lock()`.
+- **Write atomically.** Use `writeFileAtomic` (temp file + rename, keeps the mode, writes through symlinks), never `os.WriteFile`, for vault files.
+
+`DELETE /api/tasks` goes through `tasks.CancelOrDeleteTask`: a task with a `google_id`/`todoist_id` is rewritten as `[-]` (cancel), any other task's line is removed. Tests: `pkg/vaultlock`, `pkg/tasks/atomic_test.go`, `pkg/tasks/add_test.go`.
 
 ## HTTP Task Server (`pkg/server/`, `pkg/tasks/`)
 

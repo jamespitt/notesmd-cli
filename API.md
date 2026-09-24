@@ -237,6 +237,10 @@ Full-text search across all notes in the vault.
 
 Tasks are Obsidian markdown checkbox items. The server scans the request's vault over its configured task folders (`task_folders` for that vault, else `default_task_folders`, else the whole vault) on every request — there is no caching.
 
+**Cancelled tasks are hidden.** A `- [-]` line, and an open task tagged `#Delete`, is a *cancelled* task: it stays in the file until the sync purges it a day or more later (see `DELETE /api/tasks` below), and no task endpoint returns it.
+
+**Write safety.** Every task write (`PATCH`, `POST`, `DELETE`, project task creation) takes the shared vault lock — the same exclusive `flock` the Google/Todoist sync and the git auto-commit job use — and replaces the file atomically. If the lock can't be had within 3 minutes (a long sync run), the request fails with `500` and `{"error": "vault busy: timed out …"}`; retry it. The lock path is `$TASK_VAULT_LOCK`, default `~/.local/state/task_system/vault.lock`.
+
 ### Task object
 
 ```json

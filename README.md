@@ -371,11 +371,25 @@ notesmd-cli tasks --from 2026-02-18 --to 2026-02-25
 notesmd-cli tasks --folder "Google Tasks" --folder "Projects"
 ```
 
-Prints `path:line<TAB>raw task line`, unscheduled tasks first then scheduled ones chronologically.
+Prints `path:line<TAB>raw task line`, unscheduled tasks first then scheduled ones chronologically. Cancelled tasks (`- [-]`) are not listed.
+
+### Add Task
+
+Append a task to a list file (default list: `Obsidian`).
+
+```bash
+notesmd-cli add-task "Reschedule the 1:1" \
+  --vault "/home/james/src/tm_notes" --folder "Google Tasks" --list Obsidian \
+  --tag ToTriage --source "wiki/meetings/2026-09-22 Slack Activity Summary.md" \
+  --user "James Pitt" --user "Olha Yeremenko" --created 2026-09-22
+# writes: - [ ] Reschedule the 1:1 #ToTriage [created::2026-09-22] [source:: wiki/meetings/...] [user:: James Pitt, Olha Yeremenko]
+```
+
+Use this instead of editing a synced list file by hand or from a script: it takes the shared vault lock (so it can't race the Google/Todoist sync or the git auto-commit job) and writes atomically. It is idempotent - a task whose title is already in the list (case-insensitive, ignoring tags and fields) is skipped, so re-running an ingest is safe. `--vault` accepts a vault name or an absolute path; `--folder` overrides the configured task folders; `--created` defaults to today. Exits non-zero if the list file isn't found.
 
 ## Task Server
 
-`notesmd-cli serve` starts an HTTP API over the vault's tasks - list/create/edit/delete/move tasks (including subtasks and a Kanban view), plus project notes. It's the backend for `task-front-end`, a companion SvelteKit web app; `obsidian-kanban`, a companion Obsidian plugin, implements the same task-file conventions directly against the vault instead of over HTTP.
+`notesmd-cli serve` starts an HTTP API over the vault's tasks - list/create/edit/delete/move tasks (including subtasks and a Kanban view), plus project notes. "Delete" on a task that has a `google_id`/`todoist_id` cancels it (`- [-]`) for the sync to purge later, rather than removing the line - see `API.md`. It's the backend for `task-front-end`, a companion SvelteKit web app; `obsidian-kanban`, a companion Obsidian plugin, implements the same task-file conventions directly against the vault instead of over HTTP.
 
 ```bash
 # Start on the default port (7070), using the default vault
