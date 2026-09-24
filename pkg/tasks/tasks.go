@@ -57,6 +57,18 @@ type Task struct {
 	Created string `json:"created,omitempty"`
 	Source  string `json:"source,omitempty"`
 	User    string `json:"user,omitempty"`
+	// Subtasks is only filled in by KanbanCardsIn: every descendant of a
+	// board card, in file order, so a client can draw them inside the card.
+	Subtasks []Subtask `json:"subtasks,omitempty"`
+}
+
+// Subtask is a compact view of a descendant of a Kanban card.
+type Subtask struct {
+	LineNum int    `json:"line_num"`
+	Title   string `json:"title"`
+	Status  Status `json:"status"`
+	// Level is relative to the card: 1 = direct child, 2 = grandchild, ...
+	Level int `json:"level"`
 }
 
 var (

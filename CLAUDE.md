@@ -76,6 +76,8 @@ Task files are also rewritten by the Python sync and a git auto-commit job, so e
 - **Take the vault lock.** `vaultlock.Lock()` (an exclusive `flock` on `$TASK_VAULT_LOCK`, default `~/.local/state/task_system/vault.lock`, the same file as `tasks/src/vault_lock.py` and `tasks/git.sh`) is acquired at the top of each leaf mutator and released with `defer`. It waits up to 3 minutes and isn't reentrant, so **don't call one locked mutator from another** (`SetStatusTag` is a lock-free wrapper around `SetStatusTagIn` for this reason). A new mutator needs its own `Lock()`.
 - **Write atomically.** Use `writeFileAtomic` (temp file + rename, keeps the mode, writes through symlinks), never `os.WriteFile`, for vault files.
 
+`PATCH set-parent` goes through `tasks.SetParent` (`pkg/tasks/subtasks.go`): it moves a task's whole block (the task plus its deeper-indented task lines) under a parent, in the same file or another, or promotes it to top level; nesting is only indentation on disk, so it is a single locked rewrite (destination written before source when two files are involved). The Kanban endpoint uses `tasks.KanbanCardsIn` to fold subtasks into their parent card instead of returning them as separate cards; other endpoints stay flat. `obsidian-kanban/src/taskModel.ts` mirrors both rules in TypeScript (`foldSubtasks`, `setParentInContent`, `promoteInContent`) for its local mode - keep them in step.
+
 `DELETE /api/tasks` goes through `tasks.CancelOrDeleteTask`: a task with a `google_id`/`todoist_id` is rewritten as `[-]` (cancel), any other task's line is removed. Tests: `pkg/vaultlock`, `pkg/tasks/atomic_test.go`, `pkg/tasks/add_test.go`.
 
 ## HTTP Task Server (`pkg/server/`, `pkg/tasks/`)

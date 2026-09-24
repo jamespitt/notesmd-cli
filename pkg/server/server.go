@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -539,7 +540,8 @@ func (s *Server) listTasksKanban(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	result := tasks.FilterKanbanColumns(all, columns)
+	// Subtasks are folded into their parent card (see tasks.KanbanCardsIn).
+	result := tasks.KanbanCardsIn(all, columns)
 	if result == nil {
 		result = []tasks.Task{}
 	}
@@ -771,6 +773,13 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 // New subtask:  { "action": "add-subtask", "line": 42, "title": "..." }
 //   - line is the PARENT task's line; the new task is inserted indented under it.
 //
+// Re-parent:    { "action": "set-parent", "line": 42, "parent_line": 10 }
+//   - makes the task (and its own subtasks) the last subtask of the task at
+//     parent_line, in the same file, or in "parent_path" (a vault-relative
+//     file path) when that's given - the task moves into the parent's file.
+//     parent_line 0 promotes the task to top level. Responds with the task's
+//     new { "path", "line" } - line numbers shift, so clients should refetch.
+//
 // google_id may be used in place of line for any action.
 func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 	notePath := r.PathValue("path")
@@ -789,6 +798,8 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 		KanbanStatus  string   `json:"kanban_status"`
 		KanbanColumns []string `json:"kanban_columns"`
 		Tags          []string `json:"tags"`
+		ParentLine    *int     `json:"parent_line"`
+		ParentPath    string   `json:"parent_path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -873,6 +884,40 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "due": nextDue})
+
+	case "set-parent":
+		if body.Line < 1 {
+			jsonError(w, http.StatusBadRequest, "line must be >= 1")
+			return
+		}
+		if body.ParentLine == nil || *body.ParentLine < 0 {
+			jsonError(w, http.StatusBadRequest, "parent_line is required (0 promotes to top level)")
+			return
+		}
+		dstPath, dstRel := absPath, notePath
+		if body.ParentPath != "" && *body.ParentLine > 0 {
+			dstPath = filepath.Join(vaultPath, obsidian.AddMdSuffix(body.ParentPath))
+			rel, err := filepath.Rel(vaultPath, dstPath)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				jsonError(w, http.StatusBadRequest, "parent_path must be inside the vault")
+				return
+			}
+			if _, err := os.Stat(dstPath); err != nil {
+				jsonError(w, http.StatusNotFound, fmt.Sprintf("parent file %q not found", body.ParentPath))
+				return
+			}
+			dstRel = obsidian.AddMdSuffix(body.ParentPath)
+		}
+		newLine, err := tasks.SetParent(absPath, body.Line, dstPath, *body.ParentLine)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, tasks.ErrSetParent) {
+				status = http.StatusBadRequest
+			}
+			jsonError(w, status, err.Error())
+			return
+		}
+		jsonOK(w, map[string]any{"path": dstRel, "line": newLine})
 
 	case "move":
 		if body.Line < 1 {

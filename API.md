@@ -289,6 +289,8 @@ Tasks are Obsidian markdown checkbox items. The server scans the request's vault
 | `source` | From `[source::...]`: the note the task came from (a vault-relative path, as the meeting ingest writes it). Omitted when absent |
 | `user` | From `[user::...]`: the people involved, comma-separated (`"James Pitt, Olha Yeremenko"`). Omitted when absent |
 
+| `subtasks` | Only on `GET /api/tasks/kanban` cards: the card's descendants, in file order (see that endpoint). Omitted elsewhere and when there are none |
+
 Field names in the file are case-insensitive (`[Source::…]` and `[source::…]` are the same field).
 
 ---
@@ -345,6 +347,20 @@ Tasks carrying one of the Kanban status tags (`ToDo`, `InProgress`, `Done` - cas
 ```json
 { "tasks": [ /* task objects */ ] }
 ```
+
+**Subtasks are folded into their parent card.** A task with an ancestor that is itself on the board is *not* returned as a card; it is listed in that ancestor's `subtasks` array instead (the topmost on-board ancestor owns every descendant below it, whatever their own tags). A task whose ancestors are all off the board stays a card of its own, so a tagged subtask under an untagged parent never disappears from the board. `subtasks` appears only on this endpoint:
+
+```json
+{
+  "title": "Self contained releases", "tags": ["InProgress"], "line_num": 56, "level": 0,
+  "subtasks": [
+    { "line_num": 57, "title": "Complete E2E testing pipeline integration", "status": "todo", "level": 1 },
+    { "line_num": 58, "title": "Identify and engage target users", "status": "completed", "level": 1 }
+  ]
+}
+```
+
+`level` is relative to the card (1 = direct child, 2 = grandchild); `line_num` is in the card's file. Every other task endpoint still returns subtasks as ordinary flat tasks with `level` and `parent_id`.
 
 ---
 
@@ -474,7 +490,19 @@ Applies any combination of field updates in a single rewrite. **A field key omit
 ```
 `line` is the **parent** task's line. Inserts a new incomplete task indented one level deeper than the parent, positioned after any of the parent's existing children (so it becomes the last child) - in the same file. Nesting is still purely inferred from indentation on disk; `parent_id` in the Task object (see above) is a read-time convenience computed from that indentation, not a separate stored concept, so a subtask only needs correct indentation to be recognized as a child - and to get the right `parent_id` - on the next read.
 
-**Response** (all actions): HTTP `200` with the updated field values echoed back.
+**Make a task a subtask of another (or top level):**
+```json
+{ "action": "set-parent", "line": 14, "parent_line": 3 }
+{ "action": "set-parent", "line": 14, "parent_line": 3, "parent_path": "Tasks/Home.md" }
+{ "action": "set-parent", "line": 14, "parent_line": 0 }
+```
+Moves the task **and its own subtasks** so it becomes the *last* subtask of the task at `parent_line`, indented one level under it (every nested level shifts with it). Without `parent_path` the parent is in the same file; with it (a vault-relative path, `.md` optional) the parent is in that file and the task moves there - a subtask has to live in its parent's list. `parent_line: 0` promotes the task to top level, placed right after the subtree of its top-level ancestor (a task that is already top level is left alone). Refused with `400` if the target isn't a task line, or is the task itself or one of its own subtasks; `404` if `parent_path` doesn't exist; `400` if it's outside the vault. **Line numbers shift**, so the response reports where the task ended up and clients should refetch:
+```json
+{ "path": "Tasks/Home.md", "line": 3 }
+```
+Nesting is purely indentation on disk, so the change is one atomic rewrite under the vault lock; when two files are involved the destination is written before the source is trimmed, so a failure can duplicate the task but never lose it. The Google/Todoist sync then propagates the new parent (and, for a cross-file move, the new list) on its next run.
+
+**Response** (all other actions): HTTP `200` with the updated field values echoed back.
 
 ---
 
