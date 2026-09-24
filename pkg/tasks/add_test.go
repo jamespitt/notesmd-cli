@@ -60,3 +60,48 @@ func TestCancelledTasksAreHiddenButKeepSubtaskBlocksIntact(t *testing.T) {
 		t.Fatal("cancelled child must still count as a task line for block boundaries")
 	}
 }
+
+func TestCancelOrDeleteTask(t *testing.T) {
+	t.Setenv("TASK_VAULT_LOCK", filepath.Join(t.TempDir(), "l"))
+	file := filepath.Join(t.TempDir(), "Obsidian.md")
+	os.WriteFile(file, []byte("# L\n\n- [ ] Synced #Todo [google_id::abc]\n- [ ] Local only #Todo\n    - [ ] Child [todoist_id::t1]"), 0644)
+
+	cancelled, err := CancelOrDeleteTask(file, 3)
+	if err != nil || !cancelled {
+		t.Fatalf("synced task should be cancelled: %v %v", cancelled, err)
+	}
+	got, _ := os.ReadFile(file)
+	if !strings.Contains(string(got), "- [-] Synced #Todo [google_id::abc]\n") {
+		t.Fatalf("not cancelled in place:\n%s", got)
+	}
+
+	cancelled, err = CancelOrDeleteTask(file, 4)
+	if err != nil || cancelled {
+		t.Fatalf("id-less task should be removed: %v %v", cancelled, err)
+	}
+	got, _ = os.ReadFile(file)
+	if strings.Contains(string(got), "Local only") {
+		t.Fatalf("line not removed:\n%s", got)
+	}
+
+	// Indentation is kept when cancelling a subtask.
+	if cancelled, _ = CancelOrDeleteTask(file, 4); !cancelled {
+		t.Fatal("child with todoist_id should be cancelled")
+	}
+	got, _ = os.ReadFile(file)
+	if !strings.Contains(string(got), "\n    - [-] Child [todoist_id::t1]") {
+		t.Fatalf("indent lost:\n%s", got)
+	}
+}
+
+func TestDeleteTaggedOpenTasksAreHidden(t *testing.T) {
+	if tk := parseLine("- [ ] Nope #Delete [google_id::g]", "L.md", 1); tk != nil {
+		t.Fatalf("#Delete open task should be hidden, got %+v", tk)
+	}
+	if tk := parseLine("- [ ] Nope #delete", "L.md", 1); tk != nil {
+		t.Fatal("tag match must be case-insensitive")
+	}
+	if tk := parseLine("- [x] Done #Delete", "L.md", 1); tk == nil {
+		t.Fatal("a completed task is not cancelled")
+	}
+}

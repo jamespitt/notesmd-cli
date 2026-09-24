@@ -465,7 +465,11 @@ Applies any combination of field updates in a single rewrite. **A field key omit
 
 ### `DELETE /api/tasks/{path}`
 
-Remove a task line from its file. Accepts either `line` or `google_id`.
+Delete a task. Accepts either `line` or `google_id`.
+
+A task that carries a `google_id` or `todoist_id` is **cancelled, not removed**: its line is rewritten in place as `- [-] ...`. The sync (`tasks/src/sync.py`) leaves cancelled tasks alone for at least 24h, then deletes them on Google/Todoist and moves the line to the completed archive (see `tasks/sync.md`, "Cancelled tasks"). This is deliberate: a line that just disappears looks the same to the sync as one lost in a bad merge. A task with no sync id has nothing to purge, so its line is removed as before.
+
+Cancelled tasks (`[-]`) and open tasks tagged `#Delete` are hidden from every task endpoint. To undo a cancel within the grace period, edit the marker back to `[ ]` (and remove any `#Delete` tag) in Obsidian.
 
 **Body:**
 ```json
@@ -473,9 +477,9 @@ Remove a task line from its file. Accepts either `line` or `google_id`.
 { "google_id": "UUdOdWVWUkVTX2I1SkJQVg" }
 ```
 
-**Response:**
+**Response** (`cancelled` is `true` when the line was kept as `[-]`, `false` when it was removed):
 ```json
-{ "path": "Tasks/Work.md", "line": 14 }
+{ "path": "Tasks/Work.md", "line": 14, "cancelled": true }
 ```
 
 ---

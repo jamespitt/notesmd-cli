@@ -233,6 +233,12 @@ func parseLine(line, filePath string, lineNum int) *Task {
 		tags = append(tags, tm[1])
 	}
 
+	// An open task tagged #Delete is cancelled too (same rule as the sync): it
+	// waits for the daily purge and isn't a live task.
+	if status == StatusTodo && containsTagCI(tags, "delete") {
+		return nil
+	}
+
 	// Clean title: remove dataview fields, tags, and legacy due emoji
 	title := dataviewRe.ReplaceAllString(raw, "")
 	title = tagRe.ReplaceAllString(title, "")
@@ -518,6 +524,40 @@ func DeleteTask(absPath string, lineNum int) error {
 
 	lines = append(lines[:lineNum-1], lines[lineNum:]...)
 	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+var syncIDRe = regexp.MustCompile(`\[(?:google_id|todoist_id)::\s*[^\]\s]+\]`)
+
+// CancelOrDeleteTask is what a client's "delete" does. A task that carries a
+// google_id/todoist_id is marked cancelled (`[-]`) rather than removed: the
+// sync purges cancelled tasks a day later (deleting them on Google/Todoist and
+// archiving the line), because a line that simply disappears looks the same as
+// one lost to a bad merge. A task with no sync id has nothing to purge, so its
+// line is removed as before. It reports which happened.
+func CancelOrDeleteTask(absPath string, lineNum int) (cancelled bool, err error) {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return false, err
+	}
+	defer release()
+
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return false, err
+	}
+	lines := strings.Split(string(content), "\n")
+	if lineNum < 1 || lineNum > len(lines) {
+		return false, nil
+	}
+
+	idx := lineNum - 1
+	if m := taskLineRe.FindStringSubmatch(lines[idx]); m != nil && syncIDRe.MatchString(m[3]) {
+		lines[idx] = m[1] + "- [-] " + m[3]
+		return true, writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
+	}
+
+	lines = append(lines[:idx], lines[idx+1:]...)
+	return false, writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // FindLineByGoogleID scans absPath and returns the 1-based line number of the task

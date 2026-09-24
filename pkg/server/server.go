@@ -1017,6 +1017,8 @@ func (s *Server) patchTask(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/tasks/{path...}
 // Body: { "line": 42 } or { "google_id": "..." }
+// A task with a google_id/todoist_id is marked cancelled ([-]) for the sync to
+// purge later; any other task's line is removed. See tasks.CancelOrDeleteTask.
 func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 	notePath := r.PathValue("path")
 
@@ -1055,12 +1057,13 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := tasks.DeleteTask(absPath, body.Line); err != nil {
+	cancelled, err := tasks.CancelOrDeleteTask(absPath, body.Line)
+	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	jsonOK(w, map[string]any{"path": notePath, "line": body.Line})
+	jsonOK(w, map[string]any{"path": notePath, "line": body.Line, "cancelled": cancelled})
 }
 
 // getProjectsFolder returns the configured projects folder (e.g. "Projects").
