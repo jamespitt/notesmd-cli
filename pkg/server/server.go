@@ -702,12 +702,14 @@ func (s *Server) listTasksByList(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/tasks/list/{name}
-// Body: { "title": "..." }
+// Body: { "title": "...", "status": "todo" | "completed" (optional, default todo) }
+// title is the raw text after the checkbox, so it may include #tags and [fields].
 func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
 	var body struct {
-		Title string `json:"title"`
+		Title  string `json:"title"`
+		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -715,6 +717,15 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Title == "" {
 		jsonError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	status := tasks.StatusTodo
+	switch body.Status {
+	case "", "todo":
+	case "completed":
+		status = tasks.StatusCompleted
+	default:
+		jsonError(w, http.StatusBadRequest, `status must be "todo" or "completed"`)
 		return
 	}
 
@@ -733,7 +744,7 @@ func (s *Server) addTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := tasks.AppendTask(absPath, body.Title); err != nil {
+	if err := tasks.AppendTaskWithStatus(absPath, body.Title, status); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

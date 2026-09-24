@@ -105,3 +105,37 @@ func TestDeleteTaggedOpenTasksAreHidden(t *testing.T) {
 		t.Fatal("a completed task is not cancelled")
 	}
 }
+
+func TestAppendTaskWithStatus(t *testing.T) {
+	t.Setenv("TASK_VAULT_LOCK", filepath.Join(t.TempDir(), "l"))
+	file := filepath.Join(t.TempDir(), "L.md")
+	os.WriteFile(file, []byte("# L"), 0644)
+	if err := AppendTask(file, "open #ToDo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendTaskWithStatus(file, "shipped #Done", StatusCompleted); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(file)
+	want := "# L\n- [ ] open #ToDo\n- [x] shipped #Done"
+	if string(got) != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestParseLineExposesProvenanceFields(t *testing.T) {
+	tk := parseLine("- [ ] Reschedule 1:1 #ToTriage [created::2026-09-22 00:00:00+00:00] [Source:: wiki/meetings/x.md] [USER:: James Pitt, Olha Yeremenko] [google_id::abc]", "L.md", 1)
+	if tk == nil {
+		t.Fatal("nil task")
+	}
+	if tk.Created != "2026-09-22 00:00:00+00:00" || tk.Source != "wiki/meetings/x.md" || tk.User != "James Pitt, Olha Yeremenko" {
+		t.Fatalf("provenance = %q / %q / %q", tk.Created, tk.Source, tk.User)
+	}
+	if tk.Title != "Reschedule 1:1" || tk.GoogleID != "abc" {
+		t.Fatalf("title/google_id changed: %+v", tk)
+	}
+	plain := parseLine("- [ ] Plain", "L.md", 1)
+	if plain.Created != "" || plain.Source != "" || plain.User != "" {
+		t.Fatalf("absent fields should be empty: %+v", plain)
+	}
+}

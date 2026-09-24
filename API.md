@@ -260,7 +260,10 @@ Tasks are Obsidian markdown checkbox items. The server scans the request's vault
   "list_name": "Work",
   "start_time": "09:30",
   "end_time": "10:30",
-  "google_id": "UUdOdWVWUkVTX2I1SkJQVg"
+  "google_id": "UUdOdWVWUkVTX2I1SkJQVg",
+  "created": "2026-09-22",
+  "source": "wiki/meetings/2026-09-22 Slack Activity Summary.md",
+  "user": "James Pitt, Olha Yeremenko"
 }
 ```
 
@@ -282,6 +285,11 @@ Tasks are Obsidian markdown checkbox items. The server scans the request's vault
 | `start_time` | Parsed from `HH:MM` or `HH:MM-HH:MM` prefix in the title |
 | `end_time` | Parsed from `HH:MM-HH:MM` prefix in the title |
 | `google_id` | From `[google_id::...]`; used as the stable unique identifier for calendar events |
+| `created` | From `[created::...]`, as written: a date (`2026-09-22`) or a timestamp (`2026-09-22 00:00:00+00:00`, what the sync writes). Omitted when absent |
+| `source` | From `[source::...]`: the note the task came from (a vault-relative path, as the meeting ingest writes it). Omitted when absent |
+| `user` | From `[user::...]`: the people involved, comma-separated (`"James Pitt, Olha Yeremenko"`). Omitted when absent |
+
+Field names in the file are case-insensitive (`[Source::…]` and `[source::…]` are the same field).
 
 ---
 
@@ -383,12 +391,15 @@ All tasks from the file whose stem matches `name` (e.g. `Work` → `Work.md`).
 
 ### `POST /api/tasks/list/{name}`
 
-Append a new incomplete task to the named list file.
+Append a new task to the named list file.
 
 **Body:**
 ```json
 { "title": "Write up meeting notes" }
+{ "title": "Ship it #Done", "status": "completed" }
 ```
+
+`title` is the raw text after the checkbox, so it may already carry `#tags` and `[key::value]` fields. `status` is optional: `"todo"` (default) writes `- [ ]`, `"completed"` writes `- [x]`; anything else is a `400`. An older server ignores `status` and always writes `- [ ]`.
 
 **Response:** `201 Created`
 ```json

@@ -51,6 +51,12 @@ type Task struct {
 	EndTime   string   `json:"end_time,omitempty"`
 	GoogleID  string   `json:"google_id,omitempty"`
 	EventID   string   `json:"event_id,omitempty"`
+	// Provenance fields the meeting ingest and the sync write. Passed through
+	// as written (Created may be a date or a full timestamp; User is a
+	// comma-separated list) so clients can show them.
+	Created string `json:"created,omitempty"`
+	Source  string `json:"source,omitempty"`
+	User    string `json:"user,omitempty"`
 }
 
 var (
@@ -216,7 +222,8 @@ func parseLine(line, filePath string, lineNum int) *Task {
 	// Extract dataview fields
 	fields := make(map[string]string)
 	for _, match := range dataviewRe.FindAllStringSubmatch(raw, -1) {
-		fields[strings.TrimSpace(match[1])] = strings.TrimSpace(match[2])
+		// Keys are case-insensitive: the ingest wrote `[Source::]`/`[User::]`.
+		fields[strings.ToLower(strings.TrimSpace(match[1]))] = strings.TrimSpace(match[2])
 	}
 
 	// Determine due date
@@ -268,6 +275,9 @@ func parseLine(line, filePath string, lineNum int) *Task {
 		EndTime:   endTime,
 		GoogleID:  fields["google_id"],
 		EventID:   fields["event_id"],
+		Created:   fields["created"],
+		Source:    fields["source"],
+		User:      fields["user"],
 	}
 }
 
@@ -580,6 +590,13 @@ func FindLineByGoogleID(absPath, googleID string) (int, error) {
 
 // AppendTask appends a new incomplete task with the given title to the file at absPath.
 func AppendTask(absPath string, title string) error {
+	return AppendTaskWithStatus(absPath, title, StatusTodo)
+}
+
+// AppendTaskWithStatus is AppendTask with an explicit checkbox state: a
+// completed task is written as `- [x]`, anything else as `- [ ]`. title is the
+// raw text after the checkbox, so it may already carry tags and fields.
+func AppendTaskWithStatus(absPath string, title string, status Status) error {
 	release, err := vaultlock.Lock()
 	if err != nil {
 		return err
@@ -591,7 +608,11 @@ func AppendTask(absPath string, title string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = f.WriteString("\n- [ ] " + title)
+	box := " "
+	if status == StatusCompleted {
+		box = "x"
+	}
+	_, err = f.WriteString("\n- [" + box + "] " + title)
 	return err
 }
 
