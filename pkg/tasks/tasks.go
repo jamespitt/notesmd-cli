@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Yakitrak/notesmd-cli/pkg/vaultlock"
 )
 
 // Status represents a task's completion state.
@@ -52,7 +54,10 @@ type Task struct {
 }
 
 var (
-	taskLineRe  = regexp.MustCompile(`^(\s*)-\s*\[([xX ])\]\s+(.*)`)
+	// '-' is a cancelled task (Obsidian Tasks convention). Matching it keeps
+	// block boundaries right for subtasks/moves; parseLine then hides it from
+	// task lists.
+	taskLineRe  = regexp.MustCompile(`^(\s*)-\s*\[([xX -])\]\s+(.*)`)
 	dataviewRe  = regexp.MustCompile(`\[([^\]]+?)::([^\]]*)\]`)
 	tagRe       = regexp.MustCompile(`#([\w/]+)`)
 	legacyDueRe = regexp.MustCompile(`📅\s*(\d{4}-\d{2}-\d{2})`)
@@ -190,6 +195,10 @@ func parseLine(line, filePath string, lineNum int) *Task {
 	m := taskLineRe.FindStringSubmatch(line)
 	if m == nil {
 		return nil
+	}
+
+	if m[2] == "-" {
+		return nil // cancelled: awaiting the sync's daily purge, not a live task
 	}
 
 	indent := m[1]
@@ -457,6 +466,12 @@ func GetLists(tasks []Task) []string {
 // ToggleStatus toggles a task line between complete and incomplete in a file.
 // It rewrites the line at lineNum (1-indexed) in the file at absPath.
 func ToggleStatus(absPath string, lineNum int, newStatus Status) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -480,11 +495,17 @@ func ToggleStatus(absPath string, lineNum int, newStatus Status) error {
 	}
 
 	lines[idx] = m[1] + "- [" + newChar + "] " + m[3]
-	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // DeleteTask removes the task line at lineNum (1-indexed) from the file at absPath.
 func DeleteTask(absPath string, lineNum int) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -496,7 +517,7 @@ func DeleteTask(absPath string, lineNum int) error {
 	}
 
 	lines = append(lines[:lineNum-1], lines[lineNum:]...)
-	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // FindLineByGoogleID scans absPath and returns the 1-based line number of the task
@@ -519,6 +540,12 @@ func FindLineByGoogleID(absPath, googleID string) (int, error) {
 
 // AppendTask appends a new incomplete task with the given title to the file at absPath.
 func AppendTask(absPath string, title string) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	f, err := os.OpenFile(absPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return err
@@ -530,6 +557,12 @@ func AppendTask(absPath string, title string) error {
 
 // SetDue sets or replaces the [due::value] field on the task line at lineNum.
 func SetDue(absPath string, lineNum int, due string) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -557,11 +590,17 @@ func SetDue(absPath string, lineNum int, due string) error {
 	raw = raw + " [due::" + due + "]"
 
 	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + strings.TrimSpace(raw)
-	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // SetScheduled sets or replaces the [scheduled::value] field on the task line at lineNum.
 func SetScheduled(absPath string, lineNum int, scheduled string) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -589,7 +628,7 @@ func SetScheduled(absPath string, lineNum int, scheduled string) error {
 	raw = raw + " [scheduled::" + scheduled + "]"
 
 	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + strings.TrimSpace(raw)
-	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // SetStatusTag sets the task's Kanban status tag on the task line at lineNum,
@@ -606,6 +645,12 @@ func SetStatusTag(absPath string, lineNum int, status string) error {
 // KanbanTags) before adding status. Callers are responsible for validating
 // status and columns (see ValidColumnTag).
 func SetStatusTagIn(absPath string, lineNum int, status string, columns []string) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -636,13 +681,19 @@ func SetStatusTagIn(absPath string, lineNum int, status string, columns []string
 	}
 
 	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + raw
-	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // SetTags replaces every tag on the task line at lineNum with the given
 // tags, in order. The title and every [key::value] field are left
 // untouched. Pass an empty slice to strip all tags from the task.
 func SetTags(absPath string, lineNum int, tags []string) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -671,7 +722,7 @@ func SetTags(absPath string, lineNum int, tags []string) error {
 	}
 
 	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + raw
-	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // FindListFile searches task folders within vaultPath for a file named {listName}.md.
@@ -698,6 +749,12 @@ func FindListFile(vaultPath string, folders []string, listName string) (string, 
 
 // RenameTask replaces the title portion of a task line, preserving all metadata and tags.
 func RenameTask(absPath string, lineNum int, newTitle string) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -736,7 +793,7 @@ func RenameTask(absPath string, lineNum int, newTitle string) error {
 	}
 
 	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + newRaw
-	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // TaskEdit is a set of field updates for EditTask. Each field is a pointer:
@@ -757,6 +814,12 @@ type TaskEdit struct {
 // ones EditTask doesn't know about, like google_id or custom fields) is
 // preserved as-is; only its position within the line may change.
 func EditTask(absPath string, lineNum int, edit TaskEdit) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -846,7 +909,7 @@ func EditTask(absPath string, lineNum int, edit TaskEdit) error {
 	}
 
 	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + strings.TrimSpace(newRaw)
-	return os.WriteFile(absPath, []byte(strings.Join(lines, "\n")), 0644)
+	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 // AppendSubtask inserts a new incomplete task one indentation level deeper
@@ -855,6 +918,12 @@ func EditTask(absPath string, lineNum int, edit TaskEdit) error {
 // Returns an error only on I/O failure; a missing/non-task parentLine is a
 // silent no-op, matching the other line-targeted functions in this file.
 func AppendSubtask(absPath string, parentLine int, title string) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return err
@@ -890,7 +959,7 @@ func AppendSubtask(absPath string, parentLine int, title string) error {
 	newLines = append(newLines, newLine)
 	newLines = append(newLines, lines[insertAt:]...)
 
-	return os.WriteFile(absPath, []byte(strings.Join(newLines, "\n")), 0644)
+	return writeFileAtomic(absPath, []byte(strings.Join(newLines, "\n")), 0644)
 }
 
 // MoveTask removes the task at lineNum from srcPath - along with any of its
@@ -900,6 +969,12 @@ func AppendSubtask(absPath string, parentLine int, title string) error {
 // keeps the parent/child structure intact (and therefore ParentID correct
 // on the next parse) instead of leaving children orphaned in the old file.
 func MoveTask(srcPath string, lineNum int, dstPath string) error {
+	release, err := vaultlock.Lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	content, err := os.ReadFile(srcPath)
 	if err != nil {
 		return err
@@ -934,7 +1009,7 @@ func MoveTask(srcPath string, lineNum int, dstPath string) error {
 	remaining := make([]string, 0, len(lines)-(end-idx))
 	remaining = append(remaining, lines[:idx]...)
 	remaining = append(remaining, lines[end:]...)
-	if err := os.WriteFile(srcPath, []byte(strings.Join(remaining, "\n")), 0644); err != nil {
+	if err := writeFileAtomic(srcPath, []byte(strings.Join(remaining, "\n")), 0644); err != nil {
 		return err
 	}
 
@@ -946,4 +1021,48 @@ func MoveTask(srcPath string, lineNum int, dstPath string) error {
 	defer f.Close()
 	_, err = f.WriteString("\n" + strings.Join(block, "\n"))
 	return err
+}
+
+// writeFileAtomic replaces the file at path with data via a temp file in the
+// same directory and a rename, so readers (the sync, git, Obsidian) never see
+// a half-written file. An existing file's permissions are preserved and a
+// symlinked path is written through rather than replaced.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	if info, err := os.Stat(path); err == nil {
+		perm = info.Mode().Perm()
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpName) }
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		cleanup()
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		cleanup()
+		return err
+	}
+	return nil
 }
