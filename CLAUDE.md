@@ -69,6 +69,10 @@ Tasks in Obsidian notes use Markdown checkbox syntax with optional metadata fiel
 
 Full field-by-field reference (including the HTTP Task JSON shape) is in **API.md**.
 
+## Parse cache
+
+`tasks.ParseFolders`/`ParseDir` go through `parseFileCached` (`pkg/tasks/cache.go`): each file's parsed tasks are cached by absolute path and validated by mtime + size, and returned as deep copies so callers can mutate them. An entry is only trusted once the file's mtime is at least `racyWindow` older than when it was cached (git's "racy index" rule) - without that, a same-size rewrite in the same timestamp tick as a read would be served stale. Don't bypass it with a bare `parseFile` on a request path, and don't add a task write that preserves both mtime and size. `Server.WarmCache` fills it at startup. Tests: `pkg/tasks/cache_test.go`.
+
 ## Writing task files
 
 Task files are also rewritten by the Python sync and a git auto-commit job, so every mutator in `pkg/tasks/` follows two rules:

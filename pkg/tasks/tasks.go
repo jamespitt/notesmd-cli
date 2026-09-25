@@ -121,7 +121,7 @@ func ParseFolders(vaultPath string, folders []string) ([]Task, error) {
 		if err != nil {
 			continue
 		}
-		fileTasks, err := parseFile(absPath, relPath)
+		fileTasks, err := parseFileCached(absPath, relPath)
 		if err != nil {
 			continue
 		}
@@ -142,7 +142,7 @@ func ParseFolders(vaultPath string, folders []string) ([]Task, error) {
 				return nil //nolint:nilerr
 			}
 
-			fileTasks, err := parseFile(path, relPath)
+			fileTasks, err := parseFileCached(path, relPath)
 			if err != nil {
 				return nil //nolint:nilerr
 			}
@@ -378,7 +378,7 @@ func ParseDir(vaultPath, absDir string) ([]Task, error) {
 		if err != nil {
 			return nil //nolint:nilerr
 		}
-		fileTasks, err := parseFile(path, relPath)
+		fileTasks, err := parseFileCached(path, relPath)
 		if err != nil {
 			return nil //nolint:nilerr
 		}

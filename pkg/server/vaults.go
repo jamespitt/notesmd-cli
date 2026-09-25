@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
+	"time"
 
 	"github.com/Yakitrak/notesmd-cli/pkg/obsidian"
+	"github.com/Yakitrak/notesmd-cli/pkg/tasks"
 )
 
 // Vault is one vault this server can serve. Clients pick one per request with
@@ -140,4 +143,30 @@ func (s *Server) listVaults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOK(w, map[string]any{"vaults": out, "active": active.ID})
+}
+
+// WarmCache scans every vault's task folders once, in the background, so the
+// per-file parse cache (see pkg/tasks/cache.go) is populated before the first
+// client asks. A cold scan of a large vault takes seconds; without this the
+// first request after every restart pays for it.
+func (s *Server) WarmCache() {
+	for _, v := range s.vaults {
+		go func(v Vault) {
+			path, err := v.Manager.Path()
+			if err != nil {
+				return
+			}
+			folders, err := v.Manager.TaskFolders()
+			if err != nil {
+				return
+			}
+			start := time.Now()
+			ts, err := tasks.ParseFolders(path, folders)
+			if err != nil {
+				log.Printf("warming task cache for vault %q: %v", v.ID, err)
+				return
+			}
+			log.Printf("warmed task cache for vault %q: %d tasks in %s", v.ID, len(ts), time.Since(start).Round(time.Millisecond))
+		}(v)
+	}
 }

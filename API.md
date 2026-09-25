@@ -235,7 +235,7 @@ Full-text search across all notes in the vault.
 
 ## Tasks API
 
-Tasks are Obsidian markdown checkbox items. The server scans the request's vault over its configured task folders (`task_folders` for that vault, else `default_task_folders`, else the whole vault) on every request — there is no caching.
+Tasks are Obsidian markdown checkbox items. The server scans the request's vault over its configured task folders (`task_folders` for that vault, else `default_task_folders`, else the whole vault) on every request, so a task edited by anything (Obsidian, git, the sync) shows up on the next call. Parsing is cached **per file** and keyed on the file's modification time and size, so a request only re-reads files that changed; a file modified within the last few seconds is always re-read. `serve` also scans each vault once in the background at startup so the first request isn't slow. What still costs time is the *first* scan of a large vault and the size of the response - point `task_folders` / `default_task_folders` at the folders that actually hold tasks rather than scanning the whole vault (a vault with big non-task notes, e.g. handwriting exports, is slow to scan cold).
 
 **Cancelled tasks are hidden.** A `- [-]` line, and an open task tagged `#Delete`, is a *cancelled* task: it stays in the file until the sync purges it a day or more later (see `DELETE /api/tasks` below), and no task endpoint returns it.
 

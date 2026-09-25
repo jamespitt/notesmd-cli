@@ -52,6 +52,8 @@ can discover what's available from GET /api/vaults.`,
 			log.Printf("serving vault %q [%s] -> %s%s", v.ID, v.Label, path, suffix)
 		}
 
+		srv.WarmCache()
+
 		log.Printf("notesmd-cli server listening on %s", addr)
 		if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
 			log.Fatal(err)
