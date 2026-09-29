@@ -55,7 +55,8 @@ func AddTask(absPath string, n NewTask) (added bool, err error) {
 		return false, err
 	}
 
-	want := strings.ToLower(strings.TrimSpace(newlineRe.ReplaceAllString(n.Title, " ")))
+	// parseLine strips "[duration: …]" from Title, so compare without it too.
+	want := strings.ToLower(strings.TrimSpace(durationRe.ReplaceAllString(newlineRe.ReplaceAllString(n.Title, " "), "")))
 	for i, line := range strings.Split(string(content), "\n") {
 		if t := parseLine(line, absPath, i+1); t != nil && strings.ToLower(strings.TrimSpace(t.Title)) == want {
 			return false, nil

@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -582,32 +581,16 @@ func (s *Server) getTasksNow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var timed []timedTask
-	titleTimeRe := regexp.MustCompile(`^\s*(\d{1,2}:\d{2})(?:-(\d{1,2}:\d{2}))?`)
-	scheduledTimeRe := regexp.MustCompile(`(\d{1,2}:\d{2})`)
-
 	for _, t := range todayTasks {
-		startMins := -1
-		endMins := -1
-
-		// 1. From title prefix
-		if m := titleTimeRe.FindStringSubmatch(t.Title); m != nil {
-			startMins = timeToMinutes(m[1])
-			if m[2] != "" {
-				endMins = timeToMinutes(m[2])
-			} else {
-				endMins = startMins + 60
-			}
-		}
-
-		// 2. From scheduled field
-		if startMins == -1 && t.Scheduled != "" && len(t.Scheduled) > 10 {
-			if m := scheduledTimeRe.FindStringSubmatch(t.Scheduled[10:]); m != nil {
-				startMins = timeToMinutes(m[1])
-			}
-		}
-
-		if startMins == -1 {
+		// StartTime/EndTime come from a title prefix or scheduled+duration
+		// (see tasks.parseTimes).
+		if t.StartTime == "" {
 			continue
+		}
+		startMins := timeToMinutes(t.StartTime)
+		endMins := startMins + 60
+		if t.EndTime != "" {
+			endMins = timeToMinutes(t.EndTime)
 		}
 		timed = append(timed, timedTask{task: t, startMins: startMins, endMins: endMins})
 	}

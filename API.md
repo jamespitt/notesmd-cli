@@ -282,8 +282,9 @@ Tasks are Obsidian markdown checkbox items. The server scans the request's vault
 | `level` | Indentation level (0 = top-level) |
 | `parent_id` | `"file_path:line_num"` of the parent task, absent for top-level tasks. Recomputed fresh on every parse - same as `line_num` itself, it goes stale the instant a line above it is added or removed, until the next fetch. Matches a task's own identity, i.e. `parent_id === "{file_path}:{line_num}"` of another task in the same response. |
 | `list_name` | File stem of the source file (e.g. `Work.md` → `"Work"`) |
-| `start_time` | Parsed from `HH:MM` or `HH:MM-HH:MM` prefix in the title |
-| `end_time` | Parsed from `HH:MM-HH:MM` prefix in the title |
+| `start_time` | From a `HH:MM` or `HH:MM-HH:MM` title prefix; otherwise the time on `scheduled` (or `due`), e.g. `2026-09-29T09:30` as calendar events have it |
+| `end_time` | From a `HH:MM-HH:MM` title prefix; otherwise `start_time` + `duration`. Omitted when neither gives one |
+| `duration` | Event length as written (`1h15m`), from a calendar event's `[duration: …]` (single colon - stripped from `title`, and kept on the line when a client renames/edits it) or a `[duration::…]` field |
 | `google_id` | From `[google_id::...]`; used as the stable unique identifier for calendar events |
 | `created` | From `[created::...]`, as written: a date (`2026-09-22`) or a timestamp (`2026-09-22 00:00:00+00:00`, what the sync writes). Omitted when absent |
 | `source` | From `[source::...]`: the note the task came from (a vault-relative path, as the meeting ingest writes it). Omitted when absent |
@@ -329,12 +330,12 @@ Incomplete tasks where `due` date is strictly before today.
 
 ### `GET /api/tasks/timeline`
 
-Incomplete timed tasks for today, sorted chronologically by start time. A task is included if it has both `start_time` and `end_time` (i.e. a `HH:MM-HH:MM` prefix in the title) and is "today" by any of:
+Incomplete timed tasks for today, sorted chronologically by start time. A task is included if it has a `start_time` (see the Task fields above - a title prefix or a timed `scheduled`/`due`, which covers synced calendar events) and is "today" by any of:
 - `scheduled` or `due` == today
 - Tagged `#Today`
 - File name contains today's date (e.g. `Calendar_2026-03-27.md`)
 
-Results include both `type: "task"` and `type: "event"` items.
+Results include both `type: "task"` and `type: "event"` items. A task with no `end_time` is returned with one 30 minutes after its start.
 
 ---
 

@@ -49,8 +49,11 @@ type Task struct {
 	ListName  string   `json:"list_name,omitempty"`
 	StartTime string   `json:"start_time,omitempty"`
 	EndTime   string   `json:"end_time,omitempty"`
-	GoogleID  string   `json:"google_id,omitempty"`
-	EventID   string   `json:"event_id,omitempty"`
+	// Duration is the event length as written ("1h15m"), from a calendar
+	// event's "[duration: …]" or a "[duration:: …]" field.
+	Duration string `json:"duration,omitempty"`
+	GoogleID string `json:"google_id,omitempty"`
+	EventID  string `json:"event_id,omitempty"`
 	// Provenance fields the meeting ingest and the sync write. Passed through
 	// as written (Created may be a date or a full timestamp; User is a
 	// comma-separated list) so clients can show them.
@@ -81,6 +84,11 @@ var (
 	legacyDueRe = regexp.MustCompile(`📅\s*(\d{4}-\d{2}-\d{2})`)
 	// Matches "09:30-10:00" or "09:30" at the start of a title (with optional leading space)
 	titleTimeRe = regexp.MustCompile(`^\s*(\d{1,2}:\d{2})(?:-(\d{1,2}:\d{2}))?`)
+	// The time part of a "2026-09-29T09:30" scheduled/due value.
+	dateTimeRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T ](\d{1,2}:\d{2})`)
+	// The calendar sync writes "[duration: 30m]" - one colon, so it isn't a
+	// dataview field and would otherwise stay in the title.
+	durationRe = regexp.MustCompile(`\[duration:\s*([^\]:]*)\]`)
 )
 
 // ParseVault walks the vault and returns all tasks found in .md files.
@@ -209,6 +217,53 @@ func parentID(filePath string, lineNum int) string {
 	return fmt.Sprintf("%s:%d", filePath, lineNum)
 }
 
+// parseTimes works out a task's start/end time. A "09:30-10:00 Standup" title
+// prefix wins; otherwise the start is the time on scheduled (or due), as
+// calendar events carry it ("2026-09-29T09:30"). A missing end is filled in
+// from duration when there is one, and left empty when there isn't.
+func parseTimes(title, scheduled, due, duration string) (start, end string) {
+	if tm := titleTimeRe.FindStringSubmatch(title); tm != nil {
+		start, end = tm[1], tm[2]
+	} else if dm := dateTimeRe.FindStringSubmatch(scheduled); dm != nil {
+		start = dm[1]
+	} else if dm := dateTimeRe.FindStringSubmatch(due); dm != nil {
+		start = dm[1]
+	}
+	if start == "" || end != "" || duration == "" {
+		return start, end
+	}
+	d, err := time.ParseDuration(strings.ReplaceAll(duration, " ", ""))
+	if err != nil || d <= 0 {
+		return start, end
+	}
+	return start, addMinutes(start, int(d.Minutes()))
+}
+
+// addMinutes adds mins to an "HH:MM" time, clamped to 23:59 so an event that
+// runs past midnight still ends on the same day.
+func addMinutes(hhmm string, mins int) string {
+	var h, m int
+	if _, err := fmt.Sscanf(hhmm, "%d:%d", &h, &m); err != nil {
+		return ""
+	}
+	total := h*60 + m + mins
+	if total > 23*60+59 {
+		total = 23*60 + 59
+	}
+	return fmt.Sprintf("%02d:%02d", total/60, total%60)
+}
+
+// keepDuration re-attaches raw's "[duration: …]", which parseLine strips from
+// Title, when a new title from a client doesn't carry one itself - otherwise
+// a rename would silently drop the event's length.
+func keepDuration(raw, title string) string {
+	d := durationRe.FindString(raw)
+	if d == "" || durationRe.MatchString(title) {
+		return title
+	}
+	return title + " " + d
+}
+
 func parseLine(line, filePath string, lineNum int) *Task {
 	m := taskLineRe.FindStringSubmatch(line)
 	if m == nil {
@@ -262,14 +317,15 @@ func parseLine(line, filePath string, lineNum int) *Task {
 	title := dataviewRe.ReplaceAllString(raw, "")
 	title = tagRe.ReplaceAllString(title, "")
 	title = legacyDueRe.ReplaceAllString(title, "")
+	title = durationRe.ReplaceAllString(title, "")
 	title = strings.TrimSpace(title)
 
-	// Parse start/end time from title prefix (e.g. "09:30-10:00 Standup")
-	var startTime, endTime string
-	if tm := titleTimeRe.FindStringSubmatch(title); tm != nil {
-		startTime = tm[1]
-		endTime = tm[2] // may be empty if no range given
+	duration := fields["duration"]
+	if dm := durationRe.FindStringSubmatch(raw); dm != nil {
+		duration = strings.TrimSpace(dm[1])
 	}
+
+	startTime, endTime := parseTimes(title, fields["scheduled"], due, duration)
 
 	return &Task{
 		FilePath:  filePath,
@@ -285,6 +341,7 @@ func parseLine(line, filePath string, lineNum int) *Task {
 		Level:     level,
 		StartTime: startTime,
 		EndTime:   endTime,
+		Duration:  duration,
 		GoogleID:  fields["google_id"],
 		EventID:   fields["event_id"],
 		Created:   fields["created"],
@@ -438,8 +495,13 @@ func FilterTomorrow(tasks []Task) []Task {
 	return result
 }
 
-// FilterTimeline returns today's incomplete tasks that have both a start and end time
-// parsed from the title, sorted chronologically by start time.
+// defaultTimelineMinutes is how long FilterTimeline draws a timed task that
+// has no end time or duration.
+const defaultTimelineMinutes = 30
+
+// FilterTimeline returns today's incomplete tasks that have a start time
+// (see parseTimes), sorted chronologically by start time. One with no end
+// time is given defaultTimelineMinutes.
 func FilterTimeline(tasks []Task) []Task {
 	td := today()
 	var result []Task
@@ -447,8 +509,11 @@ func FilterTimeline(tasks []Task) []Task {
 		if t.Status == StatusCompleted {
 			continue
 		}
-		if t.StartTime == "" || t.EndTime == "" {
+		if t.StartTime == "" {
 			continue
+		}
+		if t.EndTime == "" {
+			t.EndTime = addMinutes(t.StartTime, defaultTimelineMinutes)
 		}
 		dueToday := t.Due != "" && t.Due[:10] == td
 		scheduledToday := t.Scheduled != "" && t.Scheduled[:10] == td
@@ -857,7 +922,7 @@ func RenameTask(absPath string, lineNum int, newTitle string) error {
 		tagParts = append(tagParts, match)
 	}
 
-	newRaw := strings.TrimSpace(newTitle)
+	newRaw := keepDuration(raw, strings.TrimSpace(newTitle))
 	if len(metaParts) > 0 {
 		newRaw += " " + strings.Join(metaParts, " ")
 	}
@@ -958,7 +1023,7 @@ func EditTask(absPath string, lineNum int, edit TaskEdit) error {
 	// Title
 	title := strings.TrimSpace(tagRe.ReplaceAllString(dataviewRe.ReplaceAllString(raw, ""), ""))
 	if edit.Title != nil {
-		title = strings.TrimSpace(*edit.Title)
+		title = keepDuration(raw, strings.TrimSpace(*edit.Title))
 	}
 
 	// Tags
