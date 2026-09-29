@@ -490,18 +490,30 @@ func (s *Server) listTasksOverdue(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"tasks": result})
 }
 
-// GET /api/tasks/timeline
+// GET /api/tasks/timeline?date=YYYY-MM-DD
+//
+// "tasks" is the day's timed tasks (what older clients read); "untimed" is
+// the rest of the day's tasks, for an all-day strip. date defaults to today.
 func (s *Server) listTasksTimeline(w http.ResponseWriter, r *http.Request) {
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	} else if _, err := time.Parse("2006-01-02", date); err != nil {
+		jsonError(w, http.StatusBadRequest, "date must be YYYY-MM-DD")
+		return
+	}
 	all, _, _, err := s.parseTasks(w, r)
 	if err != nil {
 		return
 	}
-	// FilterTimeline only returns today's tasks with start+end time
-	result := tasks.FilterTimeline(all)
-	if result == nil {
-		result = []tasks.Task{}
+	timed, untimed := tasks.FilterTimelineOn(all, date)
+	if timed == nil {
+		timed = []tasks.Task{}
 	}
-	jsonOK(w, map[string]any{"tasks": result})
+	if untimed == nil {
+		untimed = []tasks.Task{}
+	}
+	jsonOK(w, map[string]any{"date": date, "tasks": timed, "untimed": untimed})
 }
 
 // parseKanbanColumns splits and validates a comma-separated column list (a

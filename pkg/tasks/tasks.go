@@ -499,34 +499,68 @@ func FilterTomorrow(tasks []Task) []Task {
 // has no end time or duration.
 const defaultTimelineMinutes = 30
 
-// FilterTimeline returns today's incomplete tasks that have a start time
-// (see parseTimes), sorted chronologically by start time. One with no end
-// time is given defaultTimelineMinutes.
+// FilterTimeline returns today's timed tasks - see FilterTimelineOn.
 func FilterTimeline(tasks []Task) []Task {
-	td := today()
-	var result []Task
+	timed, _ := FilterTimelineOn(tasks, today())
+	return timed
+}
+
+// FilterTimelineOn splits the incomplete tasks that belong to date
+// ("2006-01-02") into timed ones, sorted by start time, and untimed ones
+// (events first, otherwise in file order) for an all-day strip. A task
+// belongs to date if its scheduled or due date is date, its file name
+// contains date (Calendar_2026-03-27.md), or - when date is today - it's
+// tagged #Today.
+//
+// A task is timed if it has a start time (see parseTimes) that falls on
+// date: a title-prefix time always does, but a time taken from scheduled/due
+// dated another day (a multi-day event carried in today's calendar file)
+// makes it untimed here. A timed task with no end time is given
+// defaultTimelineMinutes.
+func FilterTimelineOn(tasks []Task, date string) (timed, untimed []Task) {
+	isToday := date == today()
 	for _, t := range tasks {
 		if t.Status == StatusCompleted {
 			continue
 		}
-		if t.StartTime == "" {
+		onDate := (t.Due != "" && t.Due[:10] == date) ||
+			(t.Scheduled != "" && t.Scheduled[:10] == date) ||
+			(isToday && containsTagCI(t.Tags, "today")) ||
+			strings.Contains(filepath.Base(t.FilePath), date)
+		if !onDate {
+			continue
+		}
+		if t.StartTime == "" || !timeFallsOn(t, date) {
+			untimed = append(untimed, t)
 			continue
 		}
 		if t.EndTime == "" {
 			t.EndTime = addMinutes(t.StartTime, defaultTimelineMinutes)
 		}
-		dueToday := t.Due != "" && t.Due[:10] == td
-		scheduledToday := t.Scheduled != "" && t.Scheduled[:10] == td
-		taggedToday := containsTagCI(t.Tags, "today")
-		inTodayFile := strings.Contains(filepath.Base(t.FilePath), td)
-		if dueToday || scheduledToday || taggedToday || inTodayFile {
-			result = append(result, t)
-		}
+		timed = append(timed, t)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].StartTime < result[j].StartTime
+	sort.SliceStable(timed, func(i, j int) bool {
+		return timed[i].StartTime < timed[j].StartTime
 	})
-	return result
+	sort.SliceStable(untimed, func(i, j int) bool {
+		return untimed[i].Type == "event" && untimed[j].Type != "event"
+	})
+	return timed, untimed
+}
+
+// timeFallsOn reports whether t's StartTime is on date, mirroring where
+// parseTimes took it from.
+func timeFallsOn(t Task, date string) bool {
+	if titleTimeRe.MatchString(t.Title) {
+		return true
+	}
+	if dateTimeRe.MatchString(t.Scheduled) {
+		return t.Scheduled[:10] == date
+	}
+	if dateTimeRe.MatchString(t.Due) {
+		return t.Due[:10] == date
+	}
+	return true
 }
 
 // FilterByList returns tasks whose ListName matches the given name.

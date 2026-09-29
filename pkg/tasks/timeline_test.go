@@ -91,3 +91,32 @@ func TestRenameAndEditKeepDuration(t *testing.T) {
 		t.Fatalf("round trip = %+v", tk)
 	}
 }
+
+func TestFilterTimelineOnDate(t *testing.T) {
+	day := "2030-01-15"
+	all := []Task{
+		{Title: "Standup", Type: "event", Scheduled: day + "T10:00", StartTime: "10:00", EndTime: "10:30"},
+		{Title: "Birthday", Type: "event", Scheduled: day, FilePath: "Calendar_" + day + ".md"},
+		// Multi-day event started the day before, carried in this day's file.
+		{Title: "On-call", Type: "event", Scheduled: "2030-01-14T09:00", StartTime: "09:00", FilePath: "Calendar_" + day + ".md"},
+		{Title: "09:00-09:15 Prep", Due: day, StartTime: "09:00", EndTime: "09:15"},
+		{Title: "Plain task", Due: day},
+		{Title: "Other day", Scheduled: "2030-01-16T10:00", StartTime: "10:00"},
+		// #Today only means today, not an arbitrary date.
+		{Title: "Tagged", Tags: []string{"Today"}},
+	}
+	timed, untimed := FilterTimelineOn(all, day)
+	var tn, un []string
+	for _, x := range timed {
+		tn = append(tn, x.Title)
+	}
+	for _, x := range untimed {
+		un = append(un, x.Title)
+	}
+	if strings.Join(tn, ",") != "09:00-09:15 Prep,Standup" {
+		t.Errorf("timed = %v", tn)
+	}
+	if strings.Join(un, ",") != "Birthday,On-call,Plain task" {
+		t.Errorf("untimed = %v", un)
+	}
+}

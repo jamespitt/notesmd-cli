@@ -330,12 +330,18 @@ Incomplete tasks where `due` date is strictly before today.
 
 ### `GET /api/tasks/timeline`
 
-Incomplete timed tasks for today, sorted chronologically by start time. A task is included if it has a `start_time` (see the Task fields above - a title prefix or a timed `scheduled`/`due`, which covers synced calendar events) and is "today" by any of:
-- `scheduled` or `due` == today
-- Tagged `#Today`
-- File name contains today's date (e.g. `Calendar_2026-03-27.md`)
+One day's tasks for a timeline. Optional `?date=YYYY-MM-DD` (default today; anything else is `400`).
 
-Results include both `type: "task"` and `type: "event"` items. A task with no `end_time` is returned with one 30 minutes after its start.
+```json
+{ "date": "2026-09-29", "tasks": [ /* timed */ ], "untimed": [ /* the rest of the day */ ] }
+```
+
+A task belongs to the day if it's incomplete and any of:
+- `scheduled` or `due` is on that date
+- Its file name contains the date (e.g. `Calendar_2026-03-27.md`)
+- It's tagged `#Today` (only when the date is today)
+
+`tasks` holds the ones with a `start_time` on that day (see the Task fields above - a title prefix or a timed `scheduled`/`due`, which covers synced calendar events), sorted by start time; one with no `end_time` is given one 30 minutes after its start. `untimed` holds the rest, events first: all-day events, undated-time tasks, and timed events dated another day (a multi-day event carried in the day's calendar file). Both include `type: "task"` and `type: "event"` items. Older clients that only read `tasks` get the same timed list as before.
 
 ---
 
