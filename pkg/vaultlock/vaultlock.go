@@ -2,9 +2,15 @@
 // vault: the Python sync (tasks/src/vault_lock.py), the git.sh auto-commit
 // job, and notesmd-cli's own task mutators.
 //
-// They all take an exclusive flock(2) on one shared lock file, so a
+// They all take an exclusive lock on one shared lock file, so a
 // read-modify-write in one process can never interleave with another's.
-// The lock path must match tasks/src/vault_lock.py and tasks/git.sh.
+//
+// The writers run on two hosts that share ~/src over NFS, so the lock file
+// lives under ~/src (home directories aren't shared) and, on Linux, the lock
+// is an open-file-description fcntl lock rather than flock(2): a flock taken
+// on the NFS server's local disk and one taken through an NFS mount don't
+// see each other, fcntl locks do. The lock path and lock type must match
+// tasks/src/vault_lock.py (which git.sh locks through).
 package vaultlock
 
 import (
@@ -21,11 +27,14 @@ import (
 // run can hold it for a couple of minutes.
 const DefaultTimeout = 3 * time.Minute
 
+// errHeld is what tryLock returns while another holder has the lock.
+var errHeld = errors.New("vault lock held elsewhere")
+
 // sem serialises goroutines within this process with a bounded wait.
 var sem = make(chan struct{}, 1)
 
 // Path returns the shared lock file path: $TASK_VAULT_LOCK, else
-// ~/.local/state/task_system/vault.lock.
+// ~/src/.task_vault.lock.
 func Path() string {
 	if p := os.Getenv("TASK_VAULT_LOCK"); p != "" {
 		return p
@@ -34,8 +43,17 @@ func Path() string {
 	if err != nil {
 		home = os.TempDir()
 	}
-	return filepath.Join(home, ".local", "state", "task_system", "vault.lock")
+	return filepath.Join(home, "src", ".task_vault.lock")
 }
+
+// TryLockFile takes the vault lock's kind of lock on an already-open file
+// without waiting, and UnlockFile drops it. They exist so tests elsewhere can
+// stand in for a foreign holder (the Python sync, git.sh); everything else
+// should use Lock.
+func TryLockFile(f *os.File) error { return tryLock(f) }
+
+// UnlockFile releases a lock taken with TryLockFile.
+func UnlockFile(f *os.File) error { return unlock(f) }
 
 // Lock acquires the vault lock, waiting up to DefaultTimeout, and returns a
 // release func. It is not reentrant: never call it while already holding it.
@@ -68,11 +86,11 @@ func LockTimeout(timeout time.Duration) (func(), error) {
 	}
 
 	for {
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err = tryLock(f)
 		if err == nil {
 			break
 		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+		if !errors.Is(err, errHeld) && !errors.Is(err, syscall.EINTR) {
 			f.Close()
 			unlockSem()
 			return nil, err
@@ -88,7 +106,7 @@ func LockTimeout(timeout time.Duration) (func(), error) {
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+			_ = unlock(f)
 			f.Close()
 			unlockSem()
 		})

@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -27,7 +26,7 @@ func TestLockBlocksGoroutinesUntilReleased(t *testing.T) {
 	r2()
 }
 
-// A separate open file description holding flock stands in for another
+// A separate open file description holding the lock stands in for another
 // process (the Python sync or git.sh).
 func TestLockWaitsForForeignHolder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vault.lock")
@@ -38,7 +37,7 @@ func TestLockWaitsForForeignHolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer foreign.Close()
-	if err := syscall.Flock(int(foreign.Fd()), syscall.LOCK_EX); err != nil {
+	if err := tryLock(foreign); err != nil {
 		t.Fatal(err)
 	}
 
@@ -48,7 +47,7 @@ func TestLockWaitsForForeignHolder(t *testing.T) {
 
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		syscall.Flock(int(foreign.Fd()), syscall.LOCK_UN)
+		unlock(foreign)
 	}()
 	release, err := LockTimeout(2 * time.Second)
 	if err != nil {
@@ -56,4 +55,15 @@ func TestLockWaitsForForeignHolder(t *testing.T) {
 	}
 	release()
 	release() // idempotent
+}
+
+// Both hosts mount ~/src; their home directories are separate, so the
+// default lock file has to be under ~/src.
+func TestDefaultPathIsOnTheSharedTree(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("TASK_VAULT_LOCK", "")
+	t.Setenv("HOME", home)
+	if got, want := Path(), filepath.Join(home, "src", ".task_vault.lock"); got != want {
+		t.Fatalf("Path() = %q, want %q", got, want)
+	}
 }

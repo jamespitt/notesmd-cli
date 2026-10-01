@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"bufio"
+	"crypto/rand"
 	"fmt"
 	"io/fs"
 	"os"
@@ -25,9 +26,11 @@ const (
 
 // Task represents a parsed task from an Obsidian markdown file.
 //
-// A task has no persistent, stable identity of its own in the markdown -
-// FilePath+LineNum is the only thing that addresses it, and every API
-// action that targets a task (PATCH/DELETE) already does so by line number.
+// A task's own identity is its [id::...] field (see newTaskID): minted when
+// the line is created, never changed, and what the sync and the merge use to
+// tell that two lines are the same task. It doesn't address a task in the
+// API, though: FilePath+LineNum does, and every action that targets a task
+// (PATCH/DELETE) does so by line number.
 // ParentID reuses that same "file_path:line_num" scheme (see parentID) so a
 // child's ParentID can be matched directly against another task's
 // FilePath+LineNum without a separate id concept. It's recomputed fresh on
@@ -52,6 +55,9 @@ type Task struct {
 	// Duration is the event length as written ("1h15m"), from a calendar
 	// event's "[duration: …]" or a "[duration:: …]" field.
 	Duration string `json:"duration,omitempty"`
+	// ID is the task's own [id::...], absent only on a line nothing has
+	// stamped yet (typed by hand since the last sync run).
+	ID       string `json:"id,omitempty"`
 	GoogleID string `json:"google_id,omitempty"`
 	EventID  string `json:"event_id,omitempty"`
 	// Provenance fields the meeting ingest and the sync write. Passed through
@@ -346,6 +352,7 @@ func parseLine(line, filePath string, lineNum int) *Task {
 		StartTime: startTime,
 		EndTime:   endTime,
 		Duration:  duration,
+		ID:        fields["id"],
 		GoogleID:  fields["google_id"],
 		EventID:   fields["event_id"],
 		Created:   fields["created"],
@@ -365,25 +372,62 @@ func tomorrow() string {
 	return time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 }
 
+// updatedLayout is the [updated::] timestamp format: UTC, to the second. It
+// must match UPDATED_FORMAT in tasks/src/task_model.py and nowStamp in
+// obsidian-kanban's taskModel.ts.
+const updatedLayout = "2006-01-02T15:04:05Z"
+
+// clock is time.Now, replaceable in tests so stamps can be asserted exactly.
+var clock = time.Now
+
+// nowStamp returns the current time as written to [updated::...].
+func nowStamp() string {
+	return clock().UTC().Format(updatedLayout)
+}
+
 var updatedFieldRe = regexp.MustCompile(`(?i)\[updated::[^\]]*\]`)
 
-// touchUpdated sets or replaces the [updated::DATE] field on a task's raw
-// body text (the part after "- [x] "), appending it at the end like the
+// touchUpdated sets or replaces the [updated::TIMESTAMP] field on a task's
+// raw body text (the part after "- [x] "), appending it at the end like the
 // other Set* fields do. Every mutator that rewrites a task line calls this
-// last, right before reconstructing the line, so `updated` tracks the date
+// last, right before reconstructing the line, so `updated` tracks the time
 // of the line's last write regardless of which field changed.
 func touchUpdated(raw string) string {
 	raw = updatedFieldRe.ReplaceAllString(raw, "")
-	return strings.TrimSpace(raw) + " [updated::" + today() + "]"
+	return strings.TrimSpace(raw) + " [updated::" + nowStamp() + "]"
 }
+
+// idAlphabet is Crockford base32 (no i, l, o, u), lower case.
+const idAlphabet = "0123456789abcdefghjkmnpqrstvwxyz"
+
+// idLength characters of base32 is 50 bits. It must match ID_LENGTH in
+// tasks/src/task_model.py and obsidian-kanban's taskModel.ts.
+const idLength = 10
+
+// newTaskID returns a fresh random [id::...] value for a task that is being
+// created. A var so tests can pin it.
+var newTaskID = realNewTaskID
+
+func realNewTaskID() string {
+	buf := make([]byte, idLength)
+	if _, err := rand.Read(buf); err != nil {
+		panic("vault: no randomness for a task id: " + err.Error())
+	}
+	for i, b := range buf {
+		buf[i] = idAlphabet[b&31]
+	}
+	return string(buf)
+}
+
+var idFieldRe = regexp.MustCompile(`(?i)\[id::[^\]]*\]`)
 
 var createdFieldRe = regexp.MustCompile(`(?i)\[created::[^\]]*\]`)
 
 // stampCreated prepares a brand-new task's raw body text: it adds
 // #ToTriage when the task carries no tag at all (so nothing created without
 // an explicit status stays untriaged), sets [created::DATE] if the caller
-// didn't already provide one, and touches [updated::DATE] the same as any
-// other write. Called by every task-creation path (AppendTaskWithStatus,
+// didn't already provide one, gives the task its [id::...] unless the caller
+// supplied one, and touches [updated::TIMESTAMP] the same as any other write. Called by every task-creation path (AppendTaskWithStatus,
 // AppendSubtask, NewTask.Line).
 func stampCreated(raw string) string {
 	raw = strings.TrimSpace(raw)
@@ -392,6 +436,9 @@ func stampCreated(raw string) string {
 	}
 	if !createdFieldRe.MatchString(raw) {
 		raw = strings.TrimSpace(raw + " [created::" + today() + "]")
+	}
+	if !idFieldRe.MatchString(raw) {
+		raw = strings.TrimSpace(raw + " [id::" + newTaskID() + "]")
 	}
 	return touchUpdated(raw)
 }
@@ -1089,7 +1136,7 @@ func EditTask(absPath string, lineNum int, edit TaskEdit) error {
 	setField("scheduled", edit.Scheduled)
 	setField("priority", edit.Priority)
 	setField("repeat", edit.Repeat)
-	updatedNow := today()
+	updatedNow := nowStamp()
 	setField("updated", &updatedNow)
 
 	// Title

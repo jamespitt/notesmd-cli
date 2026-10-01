@@ -4,9 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Yakitrak/notesmd-cli/pkg/vaultlock"
 )
 
 func TestWriteFileAtomicPreservesModeAndLeavesNoTemp(t *testing.T) {
@@ -61,7 +62,9 @@ func TestMutatorWaitsForVaultLock(t *testing.T) {
 
 	foreign, _ := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
 	defer foreign.Close()
-	syscall.Flock(int(foreign.Fd()), syscall.LOCK_EX)
+	if err := vaultlock.TryLockFile(foreign); err != nil {
+		t.Fatal(err)
+	}
 
 	done := make(chan error, 1)
 	go func() { done <- AppendTask(file, "b") }()
@@ -75,7 +78,7 @@ func TestMutatorWaitsForVaultLock(t *testing.T) {
 		t.Fatal("write happened while lock was held")
 	}
 
-	syscall.Flock(int(foreign.Fd()), syscall.LOCK_UN)
+	vaultlock.UnlockFile(foreign)
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}

@@ -143,7 +143,7 @@ func TestAppendSubtask(t *testing.T) {
 	// #ToTriage plus [created::]/[updated::] - same as any other new task
 	// (stampCreated). newSubtaskSuffix matches that trailing text regardless
 	// of today's date.
-	newSubtaskSuffix := " #ToTriage [created::" + today() + "] [updated::" + today() + "]"
+	newSubtaskSuffix := " #ToTriage [created::" + today() + "] [id::" + testID + "] [updated::" + stamp() + "]"
 
 	t.Run("inserts a subtask indented directly under a parent with no children", func(t *testing.T) {
 		absPath := writeFile(t, "# Work\n\n- [ ] Parent task\n- [ ] Unrelated task\n")

@@ -23,8 +23,8 @@ var newlineRe = regexp.MustCompile(`[\r\n]+`)
 // "ToTriage" when the caller doesn't supply one (every created task carries
 // at least one tag), and Created defaults to today - see stampCreated, which
 // applies the same two defaults to the other creation paths (AppendTask*,
-// AppendSubtask). [updated::] is always set, same date as [created::] on a
-// brand-new line.
+// AppendSubtask). The task gets its [id::], and [updated::] is always set, to
+// the current time.
 func (n NewTask) Line() string {
 	var b strings.Builder
 	b.WriteString("- [ ] ")
@@ -45,7 +45,8 @@ func (n NewTask) Line() string {
 	if len(n.Users) > 0 {
 		b.WriteString(" [user:: " + strings.Join(n.Users, ", ") + "]")
 	}
-	b.WriteString(" [updated::" + today() + "]")
+	b.WriteString(" [id::" + newTaskID() + "]")
+	b.WriteString(" [updated::" + nowStamp() + "]")
 	return b.String()
 }
 

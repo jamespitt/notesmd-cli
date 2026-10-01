@@ -18,12 +18,12 @@ func TestAddTaskAppendsAndIsIdempotent(t *testing.T) {
 	if err != nil || !added {
 		t.Fatalf("first add: added=%v err=%v", added, err)
 	}
-	wantPrefix := "- [ ] Reschedule 1:1 #ToTriage [created::2026-09-24] [source:: wiki/x.md] [user:: A, B] [updated::"
+	wantPrefix := "- [ ] Reschedule 1:1 #ToTriage [created::2026-09-24] [source:: wiki/x.md] [user:: A, B] [id::" + testID + "] [updated::"
 	got, _ := os.ReadFile(file)
 	if !strings.Contains(string(got), "\n"+wantPrefix) {
 		t.Fatalf("line missing:\n%s", got)
 	}
-	want := wantPrefix + today() + "]"
+	want := wantPrefix + stamp() + "]"
 
 	// Same title again, different case and extra tag: skipped.
 	n.Title = "RESCHEDULE 1:1"
@@ -72,7 +72,7 @@ func TestCancelOrDeleteTask(t *testing.T) {
 		t.Fatalf("synced task should be cancelled: %v %v", cancelled, err)
 	}
 	got, _ := os.ReadFile(file)
-	if !strings.Contains(string(got), "- [-] Synced #Todo [google_id::abc] [updated::"+today()+"]\n") {
+	if !strings.Contains(string(got), "- [-] Synced #Todo [google_id::abc] [updated::"+stamp()+"]\n") {
 		t.Fatalf("not cancelled in place:\n%s", got)
 	}
 
@@ -121,7 +121,7 @@ func TestAppendTaskWithStatus(t *testing.T) {
 	// Both titles already carry a tag, so no #ToTriage is added; created/updated
 	// are still stamped since these are brand-new lines.
 	wantCreated := "[created::" + today() + "]"
-	wantUpdated := "[updated::" + today() + "]"
+	wantUpdated := "[id::" + testID + "] [updated::" + stamp() + "]"
 	for _, want := range []string{
 		"# L\n- [ ] open #ToDo " + wantCreated + " " + wantUpdated,
 		"- [x] shipped #Done " + wantCreated + " " + wantUpdated,
@@ -140,7 +140,7 @@ func TestAppendTaskAddsToTriageWhenUntagged(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(file)
-	want := "- [ ] no tags here #ToTriage [created::" + today() + "] [updated::" + today() + "]"
+	want := "- [ ] no tags here #ToTriage [created::" + today() + "] [id::" + testID + "] [updated::" + stamp() + "]"
 	if !strings.Contains(string(got), want) {
 		t.Fatalf("missing %q in:\n%s", want, got)
 	}

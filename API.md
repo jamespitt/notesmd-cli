@@ -239,7 +239,7 @@ Tasks are Obsidian markdown checkbox items. The server scans the request's vault
 
 **Cancelled tasks are hidden.** A `- [-]` line, and an open task tagged `#Delete`, is a *cancelled* task: it stays in the file until the sync purges it a day or more later (see `DELETE /api/tasks` below), and no task endpoint returns it.
 
-**Write safety.** Every task write (`PATCH`, `POST`, `DELETE`, project task creation) takes the shared vault lock — the same exclusive `flock` the Google/Todoist sync and the git auto-commit job use — and replaces the file atomically. If the lock can't be had within 3 minutes (a long sync run), the request fails with `500` and `{"error": "vault busy: timed out …"}`; retry it. The lock path is `$TASK_VAULT_LOCK`, default `~/.local/state/task_system/vault.lock`.
+**Write safety.** Every task write (`PATCH`, `POST`, `DELETE`, project task creation) takes the shared vault lock — the same exclusive lock the Google/Todoist sync and the git auto-commit job use — and replaces the file atomically. If the lock can't be had within 3 minutes (a long sync run), the request fails with `500` and `{"error": "vault busy: timed out …"}`; retry it. The lock path is `$TASK_VAULT_LOCK`, default `~/src/.task_vault.lock` (on the tree both hosts share).
 
 ### Task object
 
@@ -260,9 +260,10 @@ Tasks are Obsidian markdown checkbox items. The server scans the request's vault
   "list_name": "Work",
   "start_time": "09:30",
   "end_time": "10:30",
+  "id": "7k3m9x2qhd",
   "google_id": "UUdOdWVWUkVTX2I1SkJQVg",
   "created": "2026-09-22",
-  "updated": "2026-09-29",
+  "updated": "2026-09-29T14:03:27Z",
   "source": "wiki/meetings/2026-09-22 Slack Activity Summary.md",
   "user": "James Pitt, Olha Yeremenko"
 }
@@ -286,9 +287,10 @@ Tasks are Obsidian markdown checkbox items. The server scans the request's vault
 | `start_time` | From a `HH:MM` or `HH:MM-HH:MM` title prefix; otherwise the time on `scheduled` (or `due`), e.g. `2026-09-29T09:30` as calendar events have it |
 | `end_time` | From a `HH:MM-HH:MM` title prefix; otherwise `start_time` + `duration`. Omitted when neither gives one |
 | `duration` | Event length as written (`1h15m`), from a calendar event's `[duration: …]` (single colon - stripped from `title`, and kept on the line when a client renames/edits it) or a `[duration::…]` field |
+| `id` | From `[id::...]`: the task's own identity, 10 characters of lower-case Crockford base32 (`7k3m9x2qhd`). Every task-creation path mints one, and no later write changes it; the sync gives one to any line that lacks it (typed by hand, or older than this field). It follows the task across lists, renames and the Google/Todoist round trip, and is what the sync and merge use to recognise two lines as the same task. It does not address a task in this API: use `line` (or `google_id`). Omitted on a line nothing has stamped yet |
 | `google_id` | From `[google_id::...]`; used as the stable unique identifier for calendar events |
 | `created` | From `[created::...]`, as written: a date (`2026-09-22`) or a timestamp (`2026-09-22 00:00:00+00:00`, what the sync writes). Every task-creation path (`add-task`, `POST /api/tasks/{name}`, `POST /api/projects/{name}/tasks`, `add-subtask`, and `obsidian-kanban`'s local-mode equivalents) sets this to today when the caller doesn't supply one, so it's effectively always present on a task created since this field existed. Omitted when absent |
-| `updated` | From `[updated::...]`, a date (`2026-09-29`). Set alongside `created` when a task is created, and touched to today's date by every write a mutator makes to the line afterwards (status toggle, due/scheduled/tag/field edit, rename, move, re-parent, cancel). Omitted when absent (a line never touched by a mutator since this field existed) |
+| `updated` | From `[updated::...]`, a UTC timestamp to the second (`2026-09-29T14:03:27Z`). Set when a task is created, and touched to the current time by every write a mutator makes to the line afterwards (status toggle, due/scheduled/tag/field edit, rename, move, re-parent, cancel). The sync stamps lines that lack one and lines edited by hand, and widens old date-only values (`2026-09-29`) to midnight UTC, so clients should accept both forms. Omitted when absent |
 | `source` | From `[source::...]`: the note the task came from (a vault-relative path, as the meeting ingest writes it). Omitted when absent |
 | `user` | From `[user::...]`: the people involved, comma-separated (`"James Pitt, Olha Yeremenko"`). Omitted when absent |
 
