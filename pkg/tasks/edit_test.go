@@ -139,6 +139,12 @@ func TestAppendSubtask(t *testing.T) {
 		return absPath
 	}
 
+	// A freshly appended subtask carries no tag of its own, so it picks up
+	// #ToTriage plus [created::]/[updated::] - same as any other new task
+	// (stampCreated). newSubtaskSuffix matches that trailing text regardless
+	// of today's date.
+	newSubtaskSuffix := " #ToTriage [created::" + today() + "] [updated::" + today() + "]"
+
 	t.Run("inserts a subtask indented directly under a parent with no children", func(t *testing.T) {
 		absPath := writeFile(t, "# Work\n\n- [ ] Parent task\n- [ ] Unrelated task\n")
 		assert.NoError(t, AppendSubtask(absPath, 3, "Child task"))
@@ -147,7 +153,7 @@ func TestAppendSubtask(t *testing.T) {
 		assert.NoError(t, err)
 		lines := strings.Split(string(content), "\n")
 		assert.Equal(t, "- [ ] Parent task", lines[2])
-		assert.Equal(t, "    - [ ] Child task", lines[3])
+		assert.Equal(t, "    - [ ] Child task"+newSubtaskSuffix, lines[3])
 		assert.Equal(t, "- [ ] Unrelated task", lines[4])
 	})
 
@@ -160,7 +166,7 @@ func TestAppendSubtask(t *testing.T) {
 		lines := strings.Split(string(content), "\n")
 		assert.Equal(t, "- [ ] Parent task", lines[2])
 		assert.Equal(t, "    - [ ] First child", lines[3])
-		assert.Equal(t, "    - [ ] Second child", lines[4])
+		assert.Equal(t, "    - [ ] Second child"+newSubtaskSuffix, lines[4])
 		assert.Equal(t, "- [ ] Sibling", lines[5])
 	})
 
@@ -172,7 +178,7 @@ func TestAppendSubtask(t *testing.T) {
 		assert.NoError(t, err)
 		lines := strings.Split(string(content), "\n")
 		assert.Equal(t, "        - [ ] Grandchild", lines[4])
-		assert.Equal(t, "    - [ ] Second child", lines[5])
+		assert.Equal(t, "    - [ ] Second child"+newSubtaskSuffix, lines[5])
 		assert.Equal(t, "- [ ] Sibling", lines[6])
 	})
 

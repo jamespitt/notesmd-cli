@@ -262,6 +262,7 @@ Tasks are Obsidian markdown checkbox items. The server scans the request's vault
   "end_time": "10:30",
   "google_id": "UUdOdWVWUkVTX2I1SkJQVg",
   "created": "2026-09-22",
+  "updated": "2026-09-29",
   "source": "wiki/meetings/2026-09-22 Slack Activity Summary.md",
   "user": "James Pitt, Olha Yeremenko"
 }
@@ -286,13 +287,16 @@ Tasks are Obsidian markdown checkbox items. The server scans the request's vault
 | `end_time` | From a `HH:MM-HH:MM` title prefix; otherwise `start_time` + `duration`. Omitted when neither gives one |
 | `duration` | Event length as written (`1h15m`), from a calendar event's `[duration: …]` (single colon - stripped from `title`, and kept on the line when a client renames/edits it) or a `[duration::…]` field |
 | `google_id` | From `[google_id::...]`; used as the stable unique identifier for calendar events |
-| `created` | From `[created::...]`, as written: a date (`2026-09-22`) or a timestamp (`2026-09-22 00:00:00+00:00`, what the sync writes). Omitted when absent |
+| `created` | From `[created::...]`, as written: a date (`2026-09-22`) or a timestamp (`2026-09-22 00:00:00+00:00`, what the sync writes). Every task-creation path (`add-task`, `POST /api/tasks/{name}`, `POST /api/projects/{name}/tasks`, `add-subtask`, and `obsidian-kanban`'s local-mode equivalents) sets this to today when the caller doesn't supply one, so it's effectively always present on a task created since this field existed. Omitted when absent |
+| `updated` | From `[updated::...]`, a date (`2026-09-29`). Set alongside `created` when a task is created, and touched to today's date by every write a mutator makes to the line afterwards (status toggle, due/scheduled/tag/field edit, rename, move, re-parent, cancel). Omitted when absent (a line never touched by a mutator since this field existed) |
 | `source` | From `[source::...]`: the note the task came from (a vault-relative path, as the meeting ingest writes it). Omitted when absent |
 | `user` | From `[user::...]`: the people involved, comma-separated (`"James Pitt, Olha Yeremenko"`). Omitted when absent |
 
 | `subtasks` | Only on `GET /api/tasks/kanban` cards: the card's descendants, in file order (see that endpoint). Omitted elsewhere and when there are none |
 
 Field names in the file are case-insensitive (`[Source::…]` and `[source::…]` are the same field).
+
+**New tasks are triaged by default.** Every task-creation path adds `#ToTriage` when the task carries no tag at all (an `obsidian-kanban` board-add always supplies a Kanban status tag itself, so this only fires for a tagless `add-task`/`POST /api/tasks/{name}`/subtask). Give the task an explicit tag to skip it.
 
 ---
 

@@ -57,7 +57,7 @@ func TestSetParentSameFile(t *testing.T) {
     - [ ] A1
         - [ ] A1a
     - [ ] A2
-    - [ ] C
+    - [ ] C [updated::` + today() + `]
 - [ ] B #ToDo
 - [ ] D
     - [ ] D1
@@ -77,7 +77,7 @@ func TestSetParentDeeperAndBackwards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(readTmp(t, p), "- [ ] D\n    - [ ] D1\n        - [ ] B #ToDo\n") {
+	if !strings.Contains(readTmp(t, p), "- [ ] D\n    - [ ] D1\n        - [ ] B #ToDo [updated::"+today()+"]\n") {
 		t.Fatalf("B not nested under D1:\n%s", readTmp(t, p))
 	}
 	// After removing B (one line) D1 is line 8, so B is inserted at index 8 => line 9.
@@ -97,7 +97,7 @@ func TestSetParentMovesTheWholeSubtree(t *testing.T) {
 - [ ] C
 - [ ] D
     - [ ] D1
-    - [ ] A #ToDo
+    - [ ] A #ToDo [updated::` + today() + `]
         - [ ] A1
             - [ ] A1a
         - [ ] A2
@@ -141,7 +141,7 @@ func TestSetParentAcrossFiles(t *testing.T) {
 	if got := readTmp(t, src); got != "# L\n- [ ] Y\n" {
 		t.Fatalf("source not trimmed: %q", got)
 	}
-	if got := readTmp(t, dst); got != "# M\n- [ ] P\n    - [ ] X #ToDo\n        - [ ] X1\n- [ ] Q\n" {
+	if got := readTmp(t, dst); got != "# M\n- [ ] P\n    - [ ] X #ToDo [updated::"+today()+"]\n        - [ ] X1\n- [ ] Q\n" {
 		t.Fatalf("destination wrong: %q", got)
 	}
 	if line != 3 {
@@ -159,7 +159,7 @@ func TestSetParentPromote(t *testing.T) {
 	want := `# L
 - [ ] A #ToDo
     - [ ] A2
-- [ ] A1
+- [ ] A1 [updated::` + today() + `]
     - [ ] A1a
 - [ ] B #ToDo
 - [ ] C
@@ -185,7 +185,7 @@ func TestSetParentPreservesFileWithoutTrailingNewline(t *testing.T) {
 	if _, err := SetParent(p, 3, p, 2); err != nil {
 		t.Fatal(err)
 	}
-	if got := readTmp(t, p); got != "# L\n- [ ] A\n    - [ ] B" {
+	if got := readTmp(t, p); got != "# L\n- [ ] A\n    - [ ] B [updated::"+today()+"]" {
 		t.Fatalf("got %q", got)
 	}
 }

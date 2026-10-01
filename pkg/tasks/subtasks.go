@@ -139,6 +139,7 @@ func SetParent(srcPath string, lineNum int, dstPath string, parentLine int) (int
 	taskIndent := m[1]
 	end := blockEnd(src, idx, taskIndent)
 	block := append([]string(nil), src[idx:end]...)
+	block[0] = taskIndent + "- [" + strings.ToLower(m[2]) + "] " + touchUpdated(m[3])
 
 	if parentLine == 0 {
 		return promote(srcPath, src, idx, end, block, taskIndent)

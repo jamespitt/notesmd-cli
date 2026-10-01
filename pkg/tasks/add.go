@@ -19,23 +19,33 @@ type NewTask struct {
 
 var newlineRe = regexp.MustCompile(`[\r\n]+`)
 
-// Line renders the task in the vault's checkbox convention.
+// Line renders the task in the vault's checkbox convention. Tag defaults to
+// "ToTriage" when the caller doesn't supply one (every created task carries
+// at least one tag), and Created defaults to today - see stampCreated, which
+// applies the same two defaults to the other creation paths (AppendTask*,
+// AppendSubtask). [updated::] is always set, same date as [created::] on a
+// brand-new line.
 func (n NewTask) Line() string {
 	var b strings.Builder
 	b.WriteString("- [ ] ")
 	b.WriteString(strings.TrimSpace(newlineRe.ReplaceAllString(n.Title, " ")))
-	if n.Tag != "" {
-		b.WriteString(" #" + strings.TrimPrefix(n.Tag, "#"))
+	tag := strings.TrimPrefix(n.Tag, "#")
+	if tag == "" {
+		tag = "ToTriage"
 	}
-	if n.Created != "" {
-		b.WriteString(" [created::" + n.Created + "]")
+	b.WriteString(" #" + tag)
+	created := n.Created
+	if created == "" {
+		created = today()
 	}
+	b.WriteString(" [created::" + created + "]")
 	if n.Source != "" {
 		b.WriteString(" [source:: " + n.Source + "]")
 	}
 	if len(n.Users) > 0 {
 		b.WriteString(" [user:: " + strings.Join(n.Users, ", ") + "]")
 	}
+	b.WriteString(" [updated::" + today() + "]")
 	return b.String()
 }
 

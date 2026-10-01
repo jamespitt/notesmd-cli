@@ -49,7 +49,7 @@ func TestSetTags(t *testing.T) {
 		content, err := os.ReadFile(absPath)
 		assert.NoError(t, err)
 		lines := strings.Split(string(content), "\n")
-		assert.Equal(t, "- [ ] Buy milk", lines[2])
+		assert.Equal(t, "- [ ] Buy milk [updated::"+today()+"]", lines[2])
 	})
 
 	t.Run("preserves tag order", func(t *testing.T) {
@@ -79,6 +79,6 @@ func TestSetTags(t *testing.T) {
 		content, err := os.ReadFile(absPath)
 		assert.NoError(t, err)
 		lines := strings.Split(string(content), "\n")
-		assert.Equal(t, "- [ ] Buy milk #groceries", lines[2])
+		assert.Equal(t, "- [ ] Buy milk #groceries [updated::"+today()+"]", lines[2])
 	})
 }

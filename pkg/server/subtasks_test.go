@@ -6,10 +6,15 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Yakitrak/notesmd-cli/mocks"
 	"github.com/stretchr/testify/assert"
 )
+
+// today mirrors pkg/tasks.today() for asserting on the [updated::] stamp
+// SetParent writes on the moved task's own line.
+func today() string { return time.Now().Format("2006-01-02") }
 
 func subtaskServer(t *testing.T) (http.Handler, string) {
 	t.Helper()
@@ -65,7 +70,7 @@ func TestSetParentActionSameFile(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, "Tasks/Work.md", out["path"])
 	assert.EqualValues(t, 4, out["line"])
-	assert.Equal(t, "# Work\n- [ ] Epic #InProgress\n    - [ ] Child #ToDo\n    - [ ] Loose #ToDo\n- [ ] Other\n",
+	assert.Equal(t, "# Work\n- [ ] Epic #InProgress\n    - [ ] Child #ToDo\n    - [ ] Loose #ToDo [updated::"+today()+"]\n- [ ] Other\n",
 		readFile(t, filepath.Join(dir, "Tasks", "Work.md")))
 }
 
@@ -75,7 +80,7 @@ func TestSetParentActionAcrossFilesReportsTheNewLocation(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, "Tasks/Home.md", out["path"])
 	assert.EqualValues(t, 3, out["line"])
-	assert.Equal(t, "# Home\n- [ ] Chores\n    - [ ] Other\n", readFile(t, filepath.Join(dir, "Tasks", "Home.md")))
+	assert.Equal(t, "# Home\n- [ ] Chores\n    - [ ] Other [updated::"+today()+"]\n", readFile(t, filepath.Join(dir, "Tasks", "Home.md")))
 	assert.NotContains(t, readFile(t, filepath.Join(dir, "Tasks", "Work.md")), "Other")
 }
 
@@ -84,7 +89,7 @@ func TestSetParentActionPromote(t *testing.T) {
 	rec, out := patch(t, h, "/api/tasks/Tasks/Work.md", `{"action":"set-parent","line":3,"parent_line":0}`)
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.EqualValues(t, 3, out["line"])
-	assert.Equal(t, "# Work\n- [ ] Epic #InProgress\n- [ ] Child #ToDo\n- [ ] Loose #ToDo\n- [ ] Other\n",
+	assert.Equal(t, "# Work\n- [ ] Epic #InProgress\n- [ ] Child #ToDo [updated::"+today()+"]\n- [ ] Loose #ToDo\n- [ ] Other\n",
 		readFile(t, filepath.Join(dir, "Tasks", "Work.md")))
 }
 

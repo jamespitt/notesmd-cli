@@ -51,8 +51,10 @@ func TestMoveTask(t *testing.T) {
 		assert.NotContains(t, srcText, "Child 2")
 		assert.Contains(t, srcText, "Unrelated")
 
+		// Moving a task stamps [updated::] on its own line, but leaves
+		// unmoved children's lines untouched.
 		dstLines := strings.Split(string(dstContent), "\n")
-		assert.Contains(t, dstLines, "- [ ] Parent")
+		assert.Contains(t, dstLines, "- [ ] Parent [updated::"+today()+"]")
 		assert.Contains(t, dstLines, "    - [ ] Child 1")
 		assert.Contains(t, dstLines, "    - [ ] Child 2")
 	})

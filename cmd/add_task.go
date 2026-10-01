@@ -68,7 +68,7 @@ func init() {
 	addTaskCmd.Flags().StringVarP(&vaultName, "vault", "v", "", "vault name")
 	addTaskCmd.Flags().StringArrayVarP(&addTaskFolders, "folder", "f", []string{}, "task folder (relative to vault root; overrides config defaults)")
 	addTaskCmd.Flags().StringVarP(&addTaskList, "list", "l", "Obsidian", "list (file name without .md) to add to")
-	addTaskCmd.Flags().StringVarP(&addTaskTag, "tag", "t", "", "tag to add, e.g. ToTriage")
+	addTaskCmd.Flags().StringVarP(&addTaskTag, "tag", "t", "", "tag to add, e.g. ToDo (default ToTriage)")
 	addTaskCmd.Flags().StringVar(&addTaskSource, "source", "", "note the task came from")
 	addTaskCmd.Flags().StringArrayVar(&addTaskUsers, "user", []string{}, "person involved (repeatable)")
 	addTaskCmd.Flags().StringVar(&addTaskCreated, "created", "", "created date YYYY-MM-DD (default today)")

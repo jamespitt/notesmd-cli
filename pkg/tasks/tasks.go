@@ -60,6 +60,10 @@ type Task struct {
 	Created string `json:"created,omitempty"`
 	Source  string `json:"source,omitempty"`
 	User    string `json:"user,omitempty"`
+	// Updated is the date of the last write any mutator in this file made to
+	// the line (see touchUpdated/stampCreated). Absent on lines written before
+	// this field existed, or ones touched only outside these mutators.
+	Updated string `json:"updated,omitempty"`
 	// Subtasks is only filled in by KanbanCardsIn: every descendant of a
 	// board card, in file order, so a client can draw them inside the card.
 	Subtasks []Subtask `json:"subtasks,omitempty"`
@@ -347,6 +351,7 @@ func parseLine(line, filePath string, lineNum int) *Task {
 		Created:   fields["created"],
 		Source:    fields["source"],
 		User:      fields["user"],
+		Updated:   fields["updated"],
 	}
 }
 
@@ -358,6 +363,37 @@ func today() string {
 // tomorrow returns tomorrow's date in YYYY-MM-DD format.
 func tomorrow() string {
 	return time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+}
+
+var updatedFieldRe = regexp.MustCompile(`(?i)\[updated::[^\]]*\]`)
+
+// touchUpdated sets or replaces the [updated::DATE] field on a task's raw
+// body text (the part after "- [x] "), appending it at the end like the
+// other Set* fields do. Every mutator that rewrites a task line calls this
+// last, right before reconstructing the line, so `updated` tracks the date
+// of the line's last write regardless of which field changed.
+func touchUpdated(raw string) string {
+	raw = updatedFieldRe.ReplaceAllString(raw, "")
+	return strings.TrimSpace(raw) + " [updated::" + today() + "]"
+}
+
+var createdFieldRe = regexp.MustCompile(`(?i)\[created::[^\]]*\]`)
+
+// stampCreated prepares a brand-new task's raw body text: it adds
+// #ToTriage when the task carries no tag at all (so nothing created without
+// an explicit status stays untriaged), sets [created::DATE] if the caller
+// didn't already provide one, and touches [updated::DATE] the same as any
+// other write. Called by every task-creation path (AppendTaskWithStatus,
+// AppendSubtask, NewTask.Line).
+func stampCreated(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if !tagRe.MatchString(raw) {
+		raw = strings.TrimSpace(raw + " #ToTriage")
+	}
+	if !createdFieldRe.MatchString(raw) {
+		raw = strings.TrimSpace(raw + " [created::" + today() + "]")
+	}
+	return touchUpdated(raw)
 }
 
 // containsTagCI returns true if tags contains the given tag (case-insensitive).
@@ -621,7 +657,7 @@ func ToggleStatus(absPath string, lineNum int, newStatus Status) error {
 		newChar = "x"
 	}
 
-	lines[idx] = m[1] + "- [" + newChar + "] " + m[3]
+	lines[idx] = m[1] + "- [" + newChar + "] " + touchUpdated(m[3])
 	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
@@ -673,7 +709,7 @@ func CancelOrDeleteTask(absPath string, lineNum int) (cancelled bool, err error)
 
 	idx := lineNum - 1
 	if m := taskLineRe.FindStringSubmatch(lines[idx]); m != nil && syncIDRe.MatchString(m[3]) {
-		lines[idx] = m[1] + "- [-] " + m[3]
+		lines[idx] = m[1] + "- [-] " + touchUpdated(m[3])
 		return true, writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 	}
 
@@ -723,7 +759,7 @@ func AppendTaskWithStatus(absPath string, title string, status Status) error {
 	if status == StatusCompleted {
 		box = "x"
 	}
-	_, err = f.WriteString("\n- [" + box + "] " + title)
+	_, err = f.WriteString("\n- [" + box + "] " + stampCreated(title))
 	return err
 }
 
@@ -761,7 +797,7 @@ func SetDue(absPath string, lineNum int, due string) error {
 
 	raw = raw + " [due::" + due + "]"
 
-	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + strings.TrimSpace(raw)
+	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + touchUpdated(raw)
 	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
@@ -799,7 +835,7 @@ func SetScheduled(absPath string, lineNum int, scheduled string) error {
 	// Append new scheduled field
 	raw = raw + " [scheduled::" + scheduled + "]"
 
-	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + strings.TrimSpace(raw)
+	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + touchUpdated(raw)
 	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
@@ -852,7 +888,7 @@ func SetStatusTagIn(absPath string, lineNum int, status string, columns []string
 		raw = strings.TrimSpace(raw + " #" + status)
 	}
 
-	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + raw
+	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + touchUpdated(raw)
 	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
@@ -893,7 +929,7 @@ func SetTags(absPath string, lineNum int, tags []string) error {
 		raw = strings.TrimSpace(raw + " #" + t)
 	}
 
-	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + raw
+	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + touchUpdated(raw)
 	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
@@ -964,7 +1000,7 @@ func RenameTask(absPath string, lineNum int, newTitle string) error {
 		newRaw += " " + strings.Join(tagParts, " ")
 	}
 
-	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + newRaw
+	lines[idx] = m[1] + "- [" + strings.ToLower(m[2]) + "] " + touchUpdated(newRaw)
 	return writeFileAtomic(absPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
@@ -1053,6 +1089,8 @@ func EditTask(absPath string, lineNum int, edit TaskEdit) error {
 	setField("scheduled", edit.Scheduled)
 	setField("priority", edit.Priority)
 	setField("repeat", edit.Repeat)
+	updatedNow := today()
+	setField("updated", &updatedNow)
 
 	// Title
 	title := strings.TrimSpace(tagRe.ReplaceAllString(dataviewRe.ReplaceAllString(raw, ""), ""))
@@ -1125,7 +1163,7 @@ func AppendSubtask(absPath string, parentLine int, title string) error {
 		insertAt++
 	}
 
-	newLine := childIndent + "- [ ] " + strings.TrimSpace(title)
+	newLine := childIndent + "- [ ] " + stampCreated(title)
 	newLines := make([]string, 0, len(lines)+1)
 	newLines = append(newLines, lines[:insertAt]...)
 	newLines = append(newLines, newLine)
@@ -1176,6 +1214,9 @@ func MoveTask(srcPath string, lineNum int, dstPath string) error {
 	}
 
 	block := append([]string(nil), lines[idx:end]...)
+	if bm := taskLineRe.FindStringSubmatch(block[0]); bm != nil {
+		block[0] = bm[1] + "- [" + strings.ToLower(bm[2]) + "] " + touchUpdated(bm[3])
+	}
 
 	// Remove the block from source.
 	remaining := make([]string, 0, len(lines)-(end-idx))
