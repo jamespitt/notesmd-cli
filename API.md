@@ -762,7 +762,31 @@ curl -T 20261002151000.wav localhost:7070/api/recordings/20261002151000.wav
 
 **Response:** `201` with `{ "name": "20261002151000.wav", "size": 1843244 }`.
 
-If the server sits behind a reverse proxy, its request-body limit (e.g. nginx `client_max_body_size`) has to allow these: a 16 kHz mono WAV is about 115 MB per hour.
+If the server sits behind a reverse proxy, its request-body limit (e.g. nginx `client_max_body_size`) has to allow these: a 16 kHz mono WAV is about 115 MB per hour. The resumable upload below avoids that limit, and is what the Android app uses.
+
+### Resumable upload: `GET` / `PUT /api/recordings/{name}/partial`
+
+Sends a recording as a series of chunks, so a dropped connection costs one chunk rather than the whole file. Chunks accumulate in a hidden `.part-{name}` file (not listed by `GET /api/recordings`) which is renamed into place when the last byte arrives.
+
+`GET /api/recordings/{name}/partial?total={size}` says where to (re)start:
+
+```json
+{ "offset": 1048576, "complete": false }
+```
+
+`complete` is `true` (and `offset` equals `total`) when a finished recording of that name and size is already there.
+
+`PUT /api/recordings/{name}/partial?offset={n}&total={size}[&sha256={hex}]` appends the request body at `offset`:
+
+| Status | Meaning |
+|--------|---------|
+| `200` `{ "offset": n, "complete": false }` | Chunk stored; send the next one from `offset` |
+| `201` `{ "name", "size", "offset", "complete": true }` | Last chunk stored and the recording is in place |
+| `409` `{ "error", "offset": n }` | `offset` isn't where the partial file ends - resume from the returned `offset`. Also returned (without `offset`) while another upload of the same name is mid-chunk |
+| `422` | The finished file didn't match `sha256`; the partial file is discarded, start again from `0` |
+| `400` | Bad name/parameters, or the chunk was cut short (it is not kept) |
+
+`offset=0` always starts the upload over. `sha256` is only checked on the request that completes the file.
 
 ---
 

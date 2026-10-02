@@ -92,6 +92,8 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/recordings", s.listRecordings)
 	mux.HandleFunc("PUT /api/recordings/{name}", s.putRecording)
+	mux.HandleFunc("GET /api/recordings/{name}/partial", s.getRecordingPartial)
+	mux.HandleFunc("PUT /api/recordings/{name}/partial", s.putRecordingPartial)
 
 	mux.HandleFunc("GET /api/whatsapp/messages", s.getWhatsappMessages)
 	mux.HandleFunc("GET /api/whatsapp/chats", s.getWhatsappChats)

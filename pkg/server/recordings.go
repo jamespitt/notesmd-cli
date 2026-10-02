@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,7 +11,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Yakitrak/notesmd-cli/pkg/obsidian"
@@ -154,4 +158,159 @@ func (s *Server) putRecording(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonCreated(w, map[string]any{"name": name, "size": size})
+}
+
+// Resumable upload: the client sends a recording as a series of chunks, each
+// appended to a hidden ".part-<name>" file, and can ask how much has arrived
+// so far - so a dropped connection costs one chunk, not the whole file.
+
+// partialLocks serialises the chunk writes of one recording; a second writer
+// for the same name is refused rather than queued behind a stalled connection.
+var (
+	partialLocksMu sync.Mutex
+	partialLocks   = map[string]*sync.Mutex{}
+)
+
+func partialLock(name string) *sync.Mutex {
+	partialLocksMu.Lock()
+	defer partialLocksMu.Unlock()
+	mu := partialLocks[name]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		partialLocks[name] = mu
+	}
+	return mu
+}
+
+func partialPath(dir, name string) string {
+	return filepath.Join(dir, ".part-"+name)
+}
+
+func queryInt(r *http.Request, key string) (int64, bool) {
+	v, err := strconv.ParseInt(r.URL.Query().Get(key), 10, 64)
+	return v, err == nil
+}
+
+// GET /api/recordings/{name}/partial?total=N
+// Where an upload of this recording should (re)start from.
+func (s *Server) getRecordingPartial(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !validRecordingName(name) {
+		jsonError(w, http.StatusBadRequest, "invalid recording name")
+		return
+	}
+	dir, err := recordingsDir()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if total, ok := queryInt(r, "total"); ok && total > 0 {
+		if info, err := os.Stat(filepath.Join(dir, name)); err == nil && info.Size() == total {
+			jsonOK(w, map[string]any{"offset": total, "complete": true})
+			return
+		}
+	}
+	var offset int64
+	if info, err := os.Stat(partialPath(dir, name)); err == nil {
+		offset = info.Size()
+	}
+	jsonOK(w, map[string]any{"offset": offset, "complete": false})
+}
+
+// PUT /api/recordings/{name}/partial?offset=N&total=T[&sha256=hex]
+// Body: the bytes of the file from offset. offset=0 starts over.
+func (s *Server) putRecordingPartial(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !validRecordingName(name) {
+		jsonError(w, http.StatusBadRequest, "invalid recording name")
+		return
+	}
+	offset, okOffset := queryInt(r, "offset")
+	total, okTotal := queryInt(r, "total")
+	if !okOffset || !okTotal || total <= 0 || total > maxRecordingBytes || offset < 0 || offset >= total {
+		jsonError(w, http.StatusBadRequest, "offset and total are required, with 0 <= offset < total")
+		return
+	}
+	dir, err := recordingsDir()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	mu := partialLock(name)
+	if !mu.TryLock() {
+		jsonError(w, http.StatusConflict, "another upload of this recording is in progress")
+		return
+	}
+	defer mu.Unlock()
+
+	part := partialPath(dir, name)
+	f, err := os.OpenFile(part, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer f.Close() //nolint:errcheck
+
+	info, err := f.Stat()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if offset != 0 && info.Size() != offset {
+		// The client is out of step (e.g. it never saw the reply to its last
+		// chunk): tell it where to carry on from.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]any{"error": "offset mismatch", "offset": info.Size()}) //nolint:errcheck
+		return
+	}
+	if err := f.Truncate(offset); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	n, err := io.Copy(f, http.MaxBytesReader(w, r.Body, total-offset))
+	if err == nil && r.ContentLength > 0 && n != r.ContentLength {
+		err = io.ErrUnexpectedEOF
+	}
+	if err != nil || n == 0 {
+		// Keep only whole chunks, so the stored offset is always one the client sent.
+		f.Truncate(offset) //nolint:errcheck
+		jsonError(w, http.StatusBadRequest, "chunk upload failed")
+		return
+	}
+	if offset+n < total {
+		jsonOK(w, map[string]any{"offset": offset + n, "complete": false})
+		return
+	}
+
+	if want := strings.ToLower(r.URL.Query().Get("sha256")); want != "" {
+		h := sha256.New()
+		if _, err := f.Seek(0, io.SeekStart); err == nil {
+			_, err = io.Copy(h, f)
+		}
+		if err != nil || hex.EncodeToString(h.Sum(nil)) != want {
+			os.Remove(part) //nolint:errcheck
+			jsonError(w, http.StatusUnprocessableEntity, "checksum mismatch; upload discarded, start again from offset 0")
+			return
+		}
+	}
+	if err := f.Close(); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.Rename(part, filepath.Join(dir, name)); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonCreated(w, map[string]any{"name": name, "size": total, "offset": total, "complete": true})
 }
