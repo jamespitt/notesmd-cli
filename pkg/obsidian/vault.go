@@ -14,6 +14,7 @@ type CliConfig struct {
 	DefaultTaskFolders    []string      `json:"default_task_folders,omitempty"`
 	DefaultProjectsFolder string        `json:"default_projects_folder,omitempty"`
 	DefaultCalendarFolder string        `json:"default_calendar_folder,omitempty"`
+	RecordingsFolder      string        `json:"recordings_folder,omitempty"`
 	Vaults                []VaultConfig `json:"vaults,omitempty"`
 }
 

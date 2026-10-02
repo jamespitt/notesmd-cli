@@ -90,6 +90,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projects/{name}/diary", s.getProjectDiary)
 	mux.HandleFunc("POST /api/projects/{name}/diary", s.postProjectDiary)
 
+	mux.HandleFunc("GET /api/recordings", s.listRecordings)
+	mux.HandleFunc("PUT /api/recordings/{name}", s.putRecording)
+
 	mux.HandleFunc("GET /api/whatsapp/messages", s.getWhatsappMessages)
 	mux.HandleFunc("GET /api/whatsapp/chats", s.getWhatsappChats)
 
@@ -102,7 +105,7 @@ func (s *Server) Handler() http.Handler {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		// X-Vault is an alternative to the ?vault= parameter, so a browser
 		// client that prefers the header isn't blocked at the preflight.
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Vault")

@@ -39,6 +39,7 @@ The server reads settings from `~/.config/notesmd-cli/preferences.json`:
 | `default_task_folders` | (whole vault) | Folders to scan for tasks; scans entire vault if empty. An entry ending in `.md` (e.g. `"Action Items.md"`) is a single file rather than a folder |
 | `default_projects_folder` | `"Projects"` | Folder that contains project subdirectories |
 | `default_calendar_folder` | `"Journal/Calendar"` | Folder containing calendar event files; tasks from here are returned with `type: "event"` |
+| `recordings_folder` | `"~/airec_recordings"` | Absolute (or `~/`) path where uploaded audio recordings are stored - see [Recordings API](#recordings-api). `$NOTESMD_RECORDINGS_DIR` overrides it |
 
 ---
 
@@ -737,6 +738,31 @@ title heading) is created if it doesn't exist.
 ```json
 { "path": "Projects/Center Parcs Trip/Diary.md", "content": "...full updated file..." }
 ```
+
+---
+
+## Recordings API
+
+Audio files pushed from the AIREC Android app (`james_mobile/airec-android`). They are stored outside the vaults - the vaults are git-synced and these are large binaries - in a single folder shared by every vault: `$NOTESMD_RECORDINGS_DIR`, else `recordings_folder` in `preferences.json`, else `~/airec_recordings`. The `?vault=` parameter is accepted but ignored.
+
+### `GET /api/recordings`
+
+**Response:**
+```json
+{ "recordings": [ { "name": "20261002151000.wav", "size": 1843244, "modified": "2026-10-02T15:20:11Z" } ] }
+```
+
+### `PUT /api/recordings/{name}`
+
+The request body is the raw file (up to 2 GiB). `name` must be a bare file name (letters, digits, `.`, `_`, `-`; no leading dot) ending in `.wav`, `.bin`, `.opus`, `.ogg`, `.mp3`, `.m4a` or `.txt`; anything else is `400`. The file is written to a temp file and renamed into place, so an interrupted upload never leaves a partial recording, and uploading the same name again replaces it.
+
+```bash
+curl -T 20261002151000.wav localhost:7070/api/recordings/20261002151000.wav
+```
+
+**Response:** `201` with `{ "name": "20261002151000.wav", "size": 1843244 }`.
+
+If the server sits behind a reverse proxy, its request-body limit (e.g. nginx `client_max_body_size`) has to allow these: a 16 kHz mono WAV is about 115 MB per hour.
 
 ---
 
