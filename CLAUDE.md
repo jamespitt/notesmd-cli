@@ -44,7 +44,7 @@ Each command in `cmd/` calls a corresponding action in `pkg/actions/`. Actions a
 | `frontmatter`/`fm` | View/edit YAML frontmatter |
 | `set-default` | Set default vault |
 | `print-default` | Print default vault info |
-| `tasks` | Search tasks by folder/tag/date range, print to console (`pkg/actions/tasks.go` + `pkg/obsidian/task.go` - separate, simpler parser than `pkg/tasks/`) |
+| `tasks` | Search and manage tasks: legacy search when run without subcommands, or subcommands (`list`, `kanban`, `move`, `rename`, `edit`, `set-parent`, `add-subtask`, `add`). Hybrid client: defaults to HTTP API when `server_url` is configured in `preferences.json`, falls back to direct vault (or `--local`) |
 | `add-task` | Append a task to a list file under the vault lock; idempotent by title (`cmd/add_task.go` → `tasks.AddTask`). Use it instead of editing synced list files directly |
 | `serve` | Start the HTTP task API server (`--port`, default 7070) that `task-front-end` talks to - see below. `--vault` is repeatable; with no flag it serves every vault in the config |
 | `vaults` | List the switchable vaults from the config (`vaults` array), marking the default |

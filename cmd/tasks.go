@@ -5,6 +5,7 @@ import (
 
 	"github.com/Yakitrak/notesmd-cli/pkg/actions"
 	"github.com/Yakitrak/notesmd-cli/pkg/obsidian"
+	"github.com/Yakitrak/notesmd-cli/pkg/tasks/client"
 
 	"github.com/spf13/cobra"
 )
@@ -16,10 +17,26 @@ var taskFrom string
 var taskTo string
 var taskToday bool
 
+var (
+	tasksLocal bool
+	tasksJSON  bool
+)
+
+func initTaskClient() (client.TaskClient, error) {
+	cfg, _ := obsidian.ReadCliConfig()
+	return client.NewClient(client.Config{
+		ForceLocal:     tasksLocal,
+		ServerURL:      cfg.ServerURL,
+		ServerUsername: cfg.ServerUsername,
+		ServerPassword: cfg.ServerPassword,
+		VaultID:        vaultName,
+	})
+}
+
 var tasksCmd = &cobra.Command{
 	Use:   "tasks",
-	Short: "Search for tasks in vault",
-	Long:  "Search for markdown checkbox tasks across notes in the vault, filtered by tag and/or date.",
+	Short: "Search and manage tasks in vault",
+	Long:  "Search or manage tasks across notes in the vault. Run without subcommands to search, or use subcommands (list, move, edit, etc.).",
 	Run: func(cmd *cobra.Command, args []string) {
 		vault := obsidian.Vault{Name: vaultName}
 		note := obsidian.Note{}
@@ -39,7 +56,10 @@ var tasksCmd = &cobra.Command{
 }
 
 func init() {
-	tasksCmd.Flags().StringVarP(&vaultName, "vault", "v", "", "vault name")
+	tasksCmd.PersistentFlags().StringVarP(&vaultName, "vault", "v", "", "vault name")
+	tasksCmd.PersistentFlags().BoolVar(&tasksLocal, "local", false, "force direct vault operations instead of HTTP API")
+	tasksCmd.PersistentFlags().BoolVar(&tasksJSON, "json", false, "output results in JSON format")
+
 	tasksCmd.Flags().StringArrayVarP(&taskFolders, "folder", "f", []string{}, "folder to search (relative to vault root, repeatable; overrides config defaults)")
 	tasksCmd.Flags().StringArrayVarP(&taskTags, "tag", "t", []string{}, "filter by tag (repeatable, OR logic)")
 	tasksCmd.Flags().StringVarP(&taskDate, "date", "d", "", "filter by exact scheduled date (YYYY-MM-DD)")

@@ -352,7 +352,53 @@ notesmd-cli frontmatter "{note-name}" --delete --key "draft"
 notesmd-cli frontmatter "{note-name}" --print --vault "{vault-name}"
 ```
 
-### Search Tasks
+### Tasks
+
+Manage and search tasks across the vault. `notesmd-cli tasks` provides a broad task command group supporting both direct local vault operations and remote HTTP operations matching the `notesmd-cli serve` API (as used by `obsidian-kanban` in API mode).
+
+When `server_url` is configured in `preferences.json` (or via `NOTESMD_SERVER_URL`), commands default to communicating over the HTTP API. Pass `--local` to force direct vault file operations. Use `--json` for machine-readable JSON output.
+
+Tasks can be targeted by their **Google ID** (`google_id`), or their short Crockford base32 **Task ID** (`id`).
+
+```bash
+# List tasks (filters: today, tomorrow, overdue, kanban, all)
+notesmd-cli tasks list
+notesmd-cli tasks list --filter overdue
+notesmd-cli tasks list --json
+
+# View Kanban board layout (grouped by column, showing subtask trees)
+notesmd-cli tasks kanban
+notesmd-cli tasks kanban --columns "ToDo,InProgress,Done,Delete"
+
+# Move task to a Kanban column (swaps status tag, updates checkbox completion)
+notesmd-cli tasks move <id> InProgress
+notesmd-cli tasks move <id> Done
+
+# Rename a task
+notesmd-cli tasks rename <id> "Updated task title"
+
+# Edit metadata fields (due, scheduled, priority, repeat)
+notesmd-cli tasks edit <id> --due 2026-10-15 --priority high
+notesmd-cli tasks edit <id> --clear-due
+
+# Subtasks and nesting
+notesmd-cli tasks add-subtask <parent-id> "New child task"
+notesmd-cli tasks set-parent <id> <parent-id>
+notesmd-cli tasks set-parent <id> --top          # promote to top-level
+
+# Add task to a list
+notesmd-cli tasks add Obsidian "Buy groceries"
+notesmd-cli tasks add Obsidian "Already completed" --done
+
+# Legacy task search (when run without subcommands)
+notesmd-cli tasks --today
+notesmd-cli tasks --tag work --tag urgent
+notesmd-cli tasks --date 2026-02-20
+notesmd-cli tasks --from 2026-02-18 --to 2026-02-25
+notesmd-cli tasks --folder "Google Tasks"
+```
+
+### Search Tasks (Legacy)
 
 Search markdown checkbox tasks across the vault, filtered by folder/tag/date.
 

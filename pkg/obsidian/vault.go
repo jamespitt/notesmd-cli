@@ -16,6 +16,9 @@ type CliConfig struct {
 	DefaultCalendarFolder string        `json:"default_calendar_folder,omitempty"`
 	RecordingsFolder      string        `json:"recordings_folder,omitempty"`
 	Vaults                []VaultConfig `json:"vaults,omitempty"`
+	ServerURL             string        `json:"server_url,omitempty"`
+	ServerUsername        string        `json:"server_username,omitempty"`
+	ServerPassword        string        `json:"server_password,omitempty"`
 }
 
 // VaultConfig is one switchable vault: an id clients pass as ?vault=<id>,
