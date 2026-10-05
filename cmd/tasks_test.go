@@ -162,6 +162,26 @@ func TestTasksCommandsHTTP(t *testing.T) {
 	assert.Equal(t, "Done", receivedBody["kanban_status"])
 }
 
+func TestPerVaultServerConfig(t *testing.T) {
+	serverWork := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tasksList := []tasks.Task{
+			{FilePath: "Action Items.md", LineNum: 1, Title: "Work Task", ID: "w001"},
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"tasks": tasksList})
+	}))
+	defer serverWork.Close()
+
+	cli, err := client.NewClient(client.Config{
+		ServerURL: serverWork.URL,
+		VaultID:   "work",
+	})
+	assert.NoError(t, err)
+
+	task, err := cli.FindTask(context.Background(), "w001")
+	assert.NoError(t, err)
+	assert.Equal(t, "Work Task", task.Title)
+}
+
 func TestFormatTaskIdentifier(t *testing.T) {
 	t1 := tasks.Task{GoogleID: "g1", ID: "id1"}
 	assert.Equal(t, "[g1]", formatTaskIdentifier(t1))

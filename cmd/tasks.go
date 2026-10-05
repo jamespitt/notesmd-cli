@@ -24,12 +24,40 @@ var (
 
 func initTaskClient() (client.TaskClient, error) {
 	cfg, _ := obsidian.ReadCliConfig()
+
+	serverURL := cfg.ServerURL
+	serverUsername := cfg.ServerUsername
+	serverPassword := cfg.ServerPassword
+	targetVault := vaultName
+
+	if targetVault != "" {
+		if v, ok := obsidian.FindConfiguredVault(targetVault); ok {
+			if v.ServerURL != "" {
+				serverURL = v.ServerURL
+				if v.ServerUsername != "" {
+					serverUsername = v.ServerUsername
+					serverPassword = v.ServerPassword
+				}
+			}
+		}
+	} else if len(cfg.Vaults) > 0 {
+		v := cfg.Vaults[0]
+		targetVault = v.ID
+		if v.ServerURL != "" {
+			serverURL = v.ServerURL
+			if v.ServerUsername != "" {
+				serverUsername = v.ServerUsername
+				serverPassword = v.ServerPassword
+			}
+		}
+	}
+
 	return client.NewClient(client.Config{
 		ForceLocal:     tasksLocal,
-		ServerURL:      cfg.ServerURL,
-		ServerUsername: cfg.ServerUsername,
-		ServerPassword: cfg.ServerPassword,
-		VaultID:        vaultName,
+		ServerURL:      serverURL,
+		ServerUsername: serverUsername,
+		ServerPassword: serverPassword,
+		VaultID:        targetVault,
 	})
 }
 

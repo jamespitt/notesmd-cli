@@ -45,7 +45,10 @@ func ConfiguredVaults() ([]VaultConfig, error) {
 
 	var out []VaultConfig
 	for _, v := range cliConfig.Vaults {
-		if v.ID == "" || v.Path == "" {
+		if v.ID == "" {
+			continue
+		}
+		if v.Path == "" && v.ServerURL == "" && cliConfig.ServerURL == "" {
 			continue
 		}
 		out = append(out, v)

@@ -29,10 +29,13 @@ type CliConfig struct {
 type VaultConfig struct {
 	ID             string   `json:"id"`
 	Label          string   `json:"label,omitempty"`
-	Path           string   `json:"path"`
+	Path           string   `json:"path,omitempty"`
 	TaskFolders    []string `json:"task_folders,omitempty"`
 	ProjectsFolder string   `json:"projects_folder,omitempty"`
 	CalendarFolder string   `json:"calendar_folder,omitempty"`
+	ServerURL      string   `json:"server_url,omitempty"`
+	ServerUsername string   `json:"server_username,omitempty"`
+	ServerPassword string   `json:"server_password,omitempty"`
 }
 
 // DisplayLabel is the label to show in a vault picker, falling back to the id.
